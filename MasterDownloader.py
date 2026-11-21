@@ -443,30 +443,36 @@ class MasterDownloader:
             return None
         return self._sanitize_name(account, "facebook")
 
-    def _normalize_tiktok_url(self, url):
-        """Keep TikTok URLs intact, with a best-effort fallback for story links."""
-        url = url.strip()
-        if "/photo/" in url:
-            return [url.replace("/photo/", "/video/"), url]
-
-        story_match = re.search(
-            r'(https?://(?:www\.)?tiktok\.com/@[^/?#]+)/(?:story|stories)/(\d+)',
-            url,
-            re.IGNORECASE,
-        )
-        if story_match:
-            video_url = f"{story_match.group(1)}/video/{story_match.group(2)}"
-            return [url, video_url]
-
-        return [url]
+    def _resolve_tiktok_short_url(self, url):
+        """vt.tiktok.com / vm.tiktok.com / tiktok.com/t/... -> link day du (theo redirect)."""
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        host = parsed.netloc.lower()
+        if host not in {"vt.tiktok.com", "vm.tiktok.com"} and not parsed.path.startswith("/t/"):
+            return url
+        try:
+            response = requests.get(url, allow_redirects=True, timeout=20, stream=True)
+            response.close()
+            return response.url or url
+        except Exception as e:
+            print(f"{Fore.YELLOW}⚠️  Khong mo duoc link rut gon TikTok {url}: {e}")
+            return url
 
     def _tiktok_url_kind(self, url):
-        path = urlparse(url if "://" in url else f"https://{url}").path.lower()
-        if "/story/" in path or "/stories/" in path:
+        """video | photo | story (1 story) | stories (tat ca story cua 1 trang ca nhan)."""
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        path = parsed.path.lower().rstrip("/")
+        # Link share story tro ve /video/{id}?...&story_type=1
+        if re.search(r"/@[^/]+/(?:story|stories)/\d+$", path) or re.search(r"(?:^|&)(?:story_type=[1-9]|aweme_type=40(?:&|$))", parsed.query):
             return "story"
+        if re.search(r"/@[^/]+/stories$", path):
+            return "stories"
         if "/photo/" in path:
             return "photo"
         return "video"
+
+    def _tiktok_post_url(self, url):
+        """/@user/story/{id} -> /@user/video/{id} (dang gallery-dl nhan)."""
+        return re.sub(r"(/@[^/?#]+)/(?:story|stories)/(\d+)", r"\1/video/\2", url, flags=re.IGNORECASE)
 
     def _extract_ydl_account(self, url, fallback):
         """Ask yt-dlp for metadata when the account is not present in the URL."""
@@ -924,12 +930,14 @@ class MasterDownloader:
         """Xử lý tải TikTok (Video/Photo)"""
         # Giữ nguyên tham số URL vì Story có thể cần tham số để định danh chính xác
         # url = url.split('?')[0].strip() 
-        url = url.strip()
-        if self._tiktok_url_kind(url) == "story":
-            return self.download_tiktok_story(url, output_folder=output_folder, progress_callback=progress_callback)
+        url = self._resolve_tiktok_short_url(url.strip())
+        kind = self._tiktok_url_kind(url)
+        if kind != "video":
+            # yt-dlp khong tai duoc anh cua bai /photo/ va khong liet ke story
+            return self.download_tiktok_gallerydl(url, kind, output_folder=output_folder, progress_callback=progress_callback)
 
-        candidate_urls = self._normalize_tiktok_url(url)
-            
+        candidate_urls = [url]
+
         username = self._extract_tiktok_account_from_url(url)
         if not username:
             username = self._extract_ydl_account(url, "tiktok")
@@ -1025,26 +1033,47 @@ class MasterDownloader:
                          print(f"{Fore.YELLOW}👉 Cookie thu cong co ve da het han hoac bi chan.")
                     continue
 
-                if "/story" in url or "/stories" in url:
-                    print(f"{Fore.YELLOW}⚠️  Story TikTok co the chua duoc yt-dlp ho tro truc tiep. Hay thu copy link video/story tu nut Share va dam bao cookie TikTok con song.")
-                    continue
-                
                 # Cac loi khac thi raise luon
                 print(f"{Fore.RED}❌ Loi TikTok: {e}")
                 raise e
 
-    def download_tiktok_story(self, url, output_folder=None, progress_callback=None):
-        """TikTok story-only flow.
+    def _gallerydl_cmd(self):
+        # Ban exe: sys.executable la chinh app, App.py chuyen tiep --gallery-dl sang gallery_dl
+        cmd = [sys.executable, "--gallery-dl"] if getattr(sys, "frozen", False) else [sys.executable, "-m", "gallery_dl"]
+        # yt-dlp ben trong gallery-dl chi tim ffmpeg tren PATH (Windows thuong khong co):
+        # khong ghep duoc video DASH + audio -> video mat tieng. Dua ffmpeg cua app vao.
+        ffmpeg = self._get_ffmpeg_exe()
+        if ffmpeg:
+            for scope in ("downloader", "extractor"):
+                cmd += ["-o", f"{scope}.ytdl.raw-options.ffmpeg_location={ffmpeg}"]
+        return cmd
 
-        yt-dlp khong co extractor rieng cho Story, nen ta map link /story/{id}
-        sang /video/{id} (dang ma TikTokIE ho tro) va uu tien tai link video truoc
-        de tranh log "Unsupported URL" thua.
-        """
-        url = url.strip()
-        candidate_urls = self._normalize_tiktok_url(url)
-        # Uu tien dang /video/{id} (yt-dlp ho tro) len dau danh sach
-        candidate_urls = sorted(candidate_urls, key=lambda u: 0 if "/video/" in u else 1)
+    def _run_gallerydl(self, cmd, progress_callback=None):
+        """Chay gallery-dl, in log ra console/progress. Tra ve (exit code, cac dong output)."""
+        process = subprocess.Popen(
+            cmd,
+            cwd=self.base_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        lines = []
+        assert process.stdout is not None
+        for line in process.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            lines.append(line)
+            print(line)
+            if progress_callback:
+                progress_callback("Running", line[-160:])
+        return process.wait(), lines
 
+    def download_tiktok_gallerydl(self, url, kind, output_folder=None, progress_callback=None):
+        """TikTok bai anh (/photo/), story le va story cua trang ca nhan, qua gallery-dl."""
         username = self._extract_tiktok_account_from_url(url) or "tiktok"
         if output_folder:
             folder = output_folder
@@ -1054,73 +1083,77 @@ class MasterDownloader:
         os.makedirs(folder, exist_ok=True)
 
         safe_name = self._sanitize_name(username, "tiktok")
-        archive = self._archive_path(folder, "tiktok_story", safe_name, "ydl")
-        self._merge_archive_once(os.path.join(self.archive_dir, f"tiktok_story_{safe_name}.txt"), archive)
-
-        ydl_opts_base = {
-            'format': self._video_format(),
-            'outtmpl': os.path.join(folder, '%(upload_date)s - STORY - %(title|No Title).100s [%(id)s].%(ext)s'),
-            'download_archive': archive,
-            'ignoreerrors': True,
-            'writethumbnails': True,
-            'postprocessors': [{
-                'key': 'FFmpegThumbnailsConvertor',
-                'format': 'jpg',
-            }],
-            'quiet': False,
-            'no_warnings': True,
-            'force_ipv4': True,
-            'sleep_interval': 8,
-            'max_sleep_interval': 20,
-            'sleep_interval_requests': 3,
-            'progress_hooks': [
-                lambda d: self._handle_ydl_progress(d, progress_callback)
-            ],
-        }
-
-        print(f"{Fore.CYAN}🚀 Dang quet TikTok Story cua: {username}")
-        if progress_callback:
-            progress_callback("0%", "Đang lấy story TikTok...")
-
+        archive_path = os.path.join(folder, f".masterdownloader_tiktok_gallerydl_{safe_name}.sqlite3")
         manual_cookie = self.get_manual_cookie("tiktok")
-        strategies = []
-        if manual_cookie:
-            temp_cookie_path = self._create_temp_cookie_file(manual_cookie)
-            if temp_cookie_path:
-                strategies.append(("Manual Cookie", {'cookiefile': temp_cookie_path}))
-        strategies.append(("Browser Cookies", {'cookiesfrombrowser': ('edge',)}))
-        strategies.append(("No Cookies", {}))
+        cookie_file = self._create_temp_cookie_file(manual_cookie) if manual_cookie else None
 
-        for label, extra_opts in strategies:
-            opts = ydl_opts_base.copy()
-            opts.update(extra_opts)
-            try:
-                if label == "Manual Cookie":
-                    print(f"{Fore.CYAN}🍪 Dang dung Manual Cookie tu settings...")
-                elif label == "Browser Cookies":
-                    print(f"{Fore.CYAN}ℹ️  Dang thu lay cookie tu Edge...")
+        cmd = [
+            *self._gallerydl_cmd(),
+            "--config-ignore",
+            "--no-input",
+            "--no-colors",
+            "--directory", folder,
+            "--download-archive", archive_path,
+            "--sleep", "1-3",
+            "--sleep-request", "2-5",
+            "--retries", "3",
+            "--http-timeout", "45",
+        ]
+        if kind in ("story", "stories"):
+            cmd += ["-o", "extractor.tiktok.filename=STORY - {id}{num:?_//>02} {title[b:150]}{file_id:? [/]/}.{extension}"]
+        if cookie_file:
+            cmd += ["--cookies", cookie_file]
 
-                with self._prepare_yt_dlp(opts, f"TikTok Story {username}") as ydl:
-                    ydl.download(candidate_urls)
+        label = {"photo": "bài ảnh", "story": "story", "stories": "story của trang cá nhân"}.get(kind, kind)
+        print(f"{Fore.CYAN}🚀 TikTok {label} cua {username} (gallery-dl)")
+        if progress_callback:
+            progress_callback("0%", f"Đang tải TikTok {label}...")
 
-                print(f"{Fore.GREEN}✅ TikTok Story da tai xong.")
-                return
-            except Exception as e:
-                err_msg = str(e)
-                is_cookie_error = "Permission denied" in err_msg or "CookieLoadError" in err_msg or "Could not copy" in err_msg
-                if is_cookie_error:
-                    if label == "Browser Cookies":
-                        print(f"{Fore.YELLOW}⚠️  Khong doc duoc cookie Edge (do dang mo). Bo qua.")
-                    else:
-                        print(f"{Fore.RED}❌ Loi cookie: {e}")
-                    continue
-                if "429" in err_msg or "Too Many Requests" in err_msg:
-                    print(f"{Fore.RED}❌ Bi TikTok chan (429) o che do {label}.")
-                    continue
-                print(f"{Fore.YELLOW}⚠️  TikTok Story fail voi {label}: {e}")
-                continue
+        code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
 
-        print(f"{Fore.RED}❌ Khong tai duoc TikTok Story.")
+        # Sau khi goi API danh sach story, TikTok tra 403 cho trang tung bai trong cung phien;
+        # chay lai cac link do trong tien trinh moi thi tai duoc.
+        retry_urls, other_errors = [], []
+        for line in lines:
+            # URL bai viet o dau dong; URL sau "for '...'" la response.url (co the da redirect)
+            m = re.search(r"(https?://\S+): Failed to extract post \(HttpError: '403", line)
+            if m:
+                if m.group(1) not in retry_urls:
+                    retry_urls.append(m.group(1))
+            elif "][error]" in line:
+                other_errors.append(line)
+        if retry_urls:
+            print(f"{Fore.YELLOW}⚠️  TikTok tra 403 cho {len(retry_urls)} bai, dang thu lai...")
+            code, lines = self._run_gallerydl(cmd + retry_urls, progress_callback)
+            if other_errors:
+                # Loi ngoai nhom 403 khong duoc chay lai: van tinh la that bai
+                code, lines = code or 1, lines + other_errors
+
+        output = "\n".join(lines).lower()
+        if code == 0 and "no results for" not in output:
+            msg = f"Đã tải xong TikTok {label}."
+            status = "100%"
+        elif "could not extract any stories" in output or ("no results for" in output and kind == "stories" and not retry_urls):
+            msg = "Không có story nào đang hiển thị (story chỉ tồn tại 24 giờ). Nếu tài khoản riêng tư, hãy lưu TikTok Cookie."
+            status = "Error"
+        elif retry_urls and "403" in output:
+            msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
+            status = "Error"
+        elif code == 0 and "no results for" in output:
+            msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
+            status = "Error"
+        elif "login" in output or "authorization" in output or "private" in output:
+            msg = "TikTok yêu cầu đăng nhập. Hãy lưu TikTok Cookie của tài khoản xem được nội dung này."
+            status = "Need Cookie"
+        else:
+            msg = f"gallery-dl lỗi exit code {code}: {lines[-1] if lines else ''}"
+            status = "Error"
+        print(f"{Fore.GREEN if status == '100%' else Fore.RED}{msg}")
+        if progress_callback:
+            progress_callback(status, msg)
+        if status != "100%":
+            # GUI chi danh dau "Lỗi" khi ham nem exception
+            raise RuntimeError(msg)
 
     def download_instagram_with_ytdlp(self, url, target, output_folder=None, progress_callback=None):
         """Try yt-dlp first for Instagram to avoid Instaloader GraphQL profile lookups."""
@@ -1231,8 +1264,7 @@ class MasterDownloader:
             print(f"{Fore.YELLOW}⚠️  Khong co Instagram Cookie. gallery-dl van se thu tai, nhung profile/private/stories co the bi han che.")
 
         cmd = [
-            # Ban exe: sys.executable la chinh app, App.py chuyen tiep --gallery-dl sang gallery_dl
-            *([sys.executable, "--gallery-dl"] if getattr(sys, "frozen", False) else [sys.executable, "-m", "gallery_dl"]),
+            *self._gallerydl_cmd(),
             "--config-ignore",
             "--no-input",
             "--no-colors",
@@ -1263,29 +1295,8 @@ class MasterDownloader:
         if progress_callback:
             progress_callback("0%", "Instagram v2 gallery-dl đang tải...")
 
-        process = subprocess.Popen(
-            cmd,
-            cwd=self.base_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-
-        last_line = ""
-        assert process.stdout is not None
-        for line in process.stdout:
-            line = line.rstrip()
-            if not line:
-                continue
-            last_line = line
-            print(line)
-            if progress_callback:
-                progress_callback("Running", line[-160:])
-
-        code = process.wait()
+        code, lines = self._run_gallerydl(cmd, progress_callback)
+        last_line = lines[-1] if lines else ""
 
         if code == 0:
             msg = "Instagram v2 gallery-dl hoàn tất."
