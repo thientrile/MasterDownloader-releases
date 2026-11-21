@@ -125,6 +125,14 @@ class GalleryDlFlowTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Không có story"):
             self._download(stories, stories, [(0, ["[tiktok][info] No results for " + stories])])
 
+    def test_retry_still_403_is_not_reported_as_no_stories(self):
+        post = "https://www.tiktok.com/@chang18102003/video/1"
+        fail = f"[tiktok][error] {post}: Failed to extract post (HttpError: '403 Forbidden' for '{post}')"
+        stories = "https://www.tiktok.com/@chang18102003/stories"
+        no_results = "[tiktok][info] No results for " + stories
+        with self.assertRaisesRegex(RuntimeError, r"chặn \(403\)"):
+            self._download(stories, stories, [(4, [fail, no_results]), (4, [fail, "[tiktok][info] No results for " + post])])
+
     def test_other_errors_survive_successful_retry(self):
         post = "https://www.tiktok.com/@chang18102003/video/1"
         fail = f"[tiktok][error] {post}: Failed to extract post (HttpError: '403 Forbidden' for '{post}')"

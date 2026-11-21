@@ -1132,8 +1132,11 @@ class MasterDownloader:
         if code == 0 and "no results for" not in output:
             msg = f"Đã tải xong TikTok {label}."
             status = "100%"
-        elif "could not extract any stories" in output or ("no results for" in output and kind == "stories"):
+        elif "could not extract any stories" in output or ("no results for" in output and kind == "stories" and not retry_urls):
             msg = "Không có story nào đang hiển thị (story chỉ tồn tại 24 giờ). Nếu tài khoản riêng tư, hãy lưu TikTok Cookie."
+            status = "Error"
+        elif retry_urls and "403" in output:
+            msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
         elif "login" in output or "authorization" in output or "private" in output:
             msg = "TikTok yêu cầu đăng nhập. Hãy lưu TikTok Cookie của tài khoản xem được nội dung này."
