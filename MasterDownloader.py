@@ -1139,6 +1139,9 @@ class MasterDownloader:
         elif retry_urls and "403" in output:
             msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
+        elif code == 0 and "no results for" in output:
+            msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
+            status = "Error"
         elif "login" in output or "authorization" in output or "private" in output:
             msg = "TikTok yêu cầu đăng nhập. Hãy lưu TikTok Cookie của tài khoản xem được nội dung này."
             status = "Need Cookie"
