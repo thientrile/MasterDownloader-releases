@@ -462,7 +462,7 @@ class MasterDownloader:
         parsed = urlparse(url if "://" in url else f"https://{url}")
         path = parsed.path.lower().rstrip("/")
         # Link share story tro ve /video/{id}?...&story_type=1
-        if re.search(r"/@[^/]+/(?:story|stories)/\d+$", path) or re.search(r"(?:^|&)(?:story_type=[1-9]|aweme_type=40)", parsed.query):
+        if re.search(r"/@[^/]+/(?:story|stories)/\d+$", path) or re.search(r"(?:^|&)(?:story_type=[1-9]|aweme_type=40(?:&|$))", parsed.query):
             return "story"
         if re.search(r"/@[^/]+/stories$", path):
             return "stories"

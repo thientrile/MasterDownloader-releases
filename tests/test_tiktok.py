@@ -34,6 +34,8 @@ class UrlKindTest(unittest.TestCase):
         cases = {
             VIDEO: "video",
             VIDEO + "?story_type=0&aweme_type=0": "video",
+            VIDEO + "?aweme_type=400": "video",
+            VIDEO + "?aweme_type=40": "story",
             "https://www.tiktok.com/@linhpntt": "video",
             PHOTO_RESOLVED: "photo",
             STORY_RESOLVED: "story",
