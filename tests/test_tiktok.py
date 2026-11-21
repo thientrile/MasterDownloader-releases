@@ -111,7 +111,7 @@ class GalleryDlFlowTest(unittest.TestCase):
     def test_profile_stories_retries_403_posts_in_new_process(self):
         post = "https://www.tiktok.com/@chang18102003/video/7710581771921935636"
         fail = (f"[tiktok][error] {post}: Failed to extract post "
-                f"(HttpError: '403 Forbidden' for '{post}')")
+                f"(HttpError: '403 Forbidden' for '{post}?redirected=1')")
         stories = "https://www.tiktok.com/@chang18102003/stories"
         calls, progress = self._download(stories, stories, [(4, [fail, "[tiktok][info] No results for " + stories]),
                                                             (0, ["ok"])])

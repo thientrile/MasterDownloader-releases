@@ -1115,7 +1115,8 @@ class MasterDownloader:
         # chay lai cac link do trong tien trinh moi thi tai duoc.
         retry_urls, other_errors = [], []
         for line in lines:
-            m = re.search(r"Failed to extract post \(HttpError: '403[^']*' for '([^']+)'", line)
+            # URL bai viet o dau dong; URL sau "for '...'" la response.url (co the da redirect)
+            m = re.search(r"(https?://\S+): Failed to extract post \(HttpError: '403", line)
             if m:
                 if m.group(1) not in retry_urls:
                     retry_urls.append(m.group(1))
