@@ -153,17 +153,25 @@ class AudioOnlyTest(unittest.TestCase):
         self.assertEqual(len(errors), 2)
         self.assertIn("boom", errors[0])
 
-    def test_run_gallerydl_fails_when_conversion_fails(self):
-        self.dl.audio_only = True
+    def _run_job(self, mode_at_start, mode_at_end):
+        # Lenh dung luc bat dau luot tai; nguoi dung doi tuy chon truoc khi gallery-dl chay xong
+        self.dl.audio_only = mode_at_start
+        filter_args = self.dl._gallerydl_cmd()[3:]
+        self.dl.audio_only = mode_at_end
         self.dl.base_dir = self.tmp.name
-        self.dl._convert_videos_to_mp3 = lambda lines: ["[mp3][error] x"]
-        code, lines = self.dl._run_gallerydl([sys.executable, "-c", "print('hi')"])
+        converted = []
+        self.dl._convert_videos_to_mp3 = lambda lines: converted.append(lines) or ["[mp3][error] x"]
+        code, lines = self.dl._run_gallerydl([sys.executable, "-c", "print('hi')", *filter_args])
+        return code, lines, converted
+
+    def test_run_gallerydl_fails_when_conversion_fails(self):
+        code, lines, converted = self._run_job(True, True)
         self.assertEqual(code, 1)
         self.assertEqual(lines[-1], "[mp3][error] x")
 
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_toggling_mid_download_keeps_job_mode(self):
+        self.assertEqual(self._run_job(False, True)[2], [])  # luot video: khong doi/xoa video
+        self.assertEqual(len(self._run_job(True, False)[2]), 1)  # luot MP3 van doi sang mp3
 
 
 class ExistingVideoTest(unittest.TestCase):
@@ -201,3 +209,7 @@ class ExistingVideoTest(unittest.TestCase):
             self.assertEqual(f.read(), before)
         self.assertTrue(os.path.getsize(os.path.join(self.out, "clip.mp3")) > 0)
         self.assertEqual(sorted(os.listdir(self.out)), ["a_mp3.txt", "clip.mp3", "clip.mp4"])
+
+
+if __name__ == "__main__":
+    unittest.main()

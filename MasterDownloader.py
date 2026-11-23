@@ -1138,7 +1138,8 @@ class MasterDownloader:
             if progress_callback:
                 progress_callback("Running", line[-160:])
         code = process.wait()
-        if self.audio_only:
+        # Theo che do luc dung lenh, khong theo cai dat hien tai: nguoi dung co the bat/tat giua luot tai
+        if any(arg.startswith("extension in (") for arg in cmd):
             errors = self._convert_videos_to_mp3(lines)
             if errors:
                 code, lines = code or 1, lines + errors
