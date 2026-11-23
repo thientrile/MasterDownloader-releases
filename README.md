@@ -1,9 +1,9 @@
 # MasterDownloader — bản phát hành / releases
 
-App Windows miễn phí tải video/ảnh từ TikTok, Instagram, Facebook, kèm quét và xoá file trùng.
-Free Windows app to download videos/photos from TikTok, Instagram and Facebook, with a duplicate-file finder.
+App Windows tự do, miễn phí (GPL-3.0) tải video/ảnh từ TikTok, Instagram, Facebook, kèm quét và xoá file trùng.
+Free (GPL-3.0) Windows app to download videos/photos from TikTok, Instagram and Facebook, with a duplicate-file finder.
 
-Repo này chỉ chứa bản phát hành. / This repository only hosts releases.
+Giấy phép / License: **GPL-3.0**. Mã nguồn sẽ được công bố tại repo này. / Source code will be published in this repository.
 
 ## Tải về / Download
 
@@ -11,7 +11,7 @@ Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases
 
 - `MasterDownloader-Setup.exe`: bộ cài theo người dùng, không cần quyền admin (khuyên dùng). Có shortcut Start Menu và gỡ cài đặt trong **Settings → Apps**. Gỡ cài đặt không xoá dữ liệu của bạn. / Per-user installer, no admin needed (recommended).
 - `MasterDownloader.exe`: bản portable / portable build.
-- [`SHA256SUMS.txt`](https://github.com/thientrile/MasterDownloader-releases/releases/latest/download/SHA256SUMS.txt), `THIRD_PARTY_LICENSES.txt`, `TERMS.txt`.
+- [`SHA256SUMS.txt`](https://github.com/thientrile/MasterDownloader-releases/releases/latest/download/SHA256SUMS.txt), `THIRD_PARTY_LICENSES.txt`, `LICENSE.txt`, `DISCLAIMER.txt`.
 
 App tự kiểm tra và cài bản mới từ đây. / The app updates itself from here.
 
@@ -22,7 +22,8 @@ App tự kiểm tra và cài bản mới từ đây. / The app updates itself fr
 - **Không bảo hành:** phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS), không có bất kỳ bảo đảm nào. Tác giả không chịu trách nhiệm về thiệt hại phát sinh từ việc sử dụng phần mềm, trong phạm vi tối đa pháp luật cho phép.
 - **Dữ liệu:** không thu thập dữ liệu. Tài khoản và cookie chỉ lưu trên máy bạn (`%APPDATA%\MasterDownloader`). App chỉ kết nối tới nền tảng bạn tải và tới GitHub để kiểm tra cập nhật.
 - **Chưa ký số:** Windows SmartScreen sẽ cảnh báo ở lần chạy đầu (bấm **More info → Run anyway**). Kiểm tính toàn vẹn bằng `Get-FileHash <file> -Algorithm SHA256` rồi so với `SHA256SUMS.txt`.
-- **Giấy phép:** phần mềm miễn phí, mã đóng, mọi quyền được bảo lưu (xem `TERMS.txt`). Thành phần bên thứ ba theo giấy phép riêng của chúng: `THIRD_PARTY_LICENSES.txt`.
+- **Giấy phép: GPL-3.0** (toàn văn trong `LICENSE`). Mã nguồn: [thientrile/MasterDownloader-releases](https://github.com/thientrile/MasterDownloader-releases). Thành phần bên thứ ba theo giấy phép riêng của chúng: `THIRD_PARTY_LICENSES.txt`. Lưu ý pháp lý đầy đủ: `DISCLAIMER.txt`.
 - **Liên hệ, gỡ nội dung, khiếu nại:** mở [Issue ở repo releases](https://github.com/thientrile/MasterDownloader-releases/issues).
 
-**English:** Personal-use download tool. Download only content you have the right to; you are responsible for complying with copyright law and each platform's Terms of Service. Not affiliated with or endorsed by TikTok, ByteDance, Meta, Google/YouTube or any other platform; trademarks belong to their owners. Provided "AS IS" without warranty; no liability to the extent permitted by law. No data collection: credentials and cookies stay on your computer. Unsigned executable: expect a SmartScreen warning; verify with `SHA256SUMS.txt`. Freeware, all rights reserved (`TERMS.txt`); third-party licenses in `THIRD_PARTY_LICENSES.txt`. Contact/takedown: open an issue in the releases repo.
+**English:** Personal-use download tool. Download only content you have the right to; you are responsible for complying with copyright law and each platform's Terms of Service. Not affiliated with or endorsed by TikTok, ByteDance, Meta, Google/YouTube or any other platform; trademarks belong to their owners. Provided "AS IS" without warranty; no liability to the extent permitted by law. No data collection: credentials and cookies stay on your computer. Unsigned executable: expect a SmartScreen warning; verify with `SHA256SUMS.txt`. License: GPL-3.0 (`LICENSE`), source code at https://github.com/thientrile/MasterDownloader-releases; third-party licenses in `THIRD_PARTY_LICENSES.txt`; full notice in `DISCLAIMER.txt`. Contact/takedown: open an issue in the releases repo.
+
