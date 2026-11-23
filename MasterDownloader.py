@@ -458,7 +458,7 @@ class MasterDownloader:
             return url
 
     def _tiktok_url_kind(self, url):
-        """video | photo | story (1 story) | stories (tat ca story cua 1 trang ca nhan)."""
+        """video | photo | story (1 story) | stories (tat ca story cua 1 trang ca nhan) | profile."""
         parsed = urlparse(url if "://" in url else f"https://{url}")
         path = parsed.path.lower().rstrip("/")
         # Link share story tro ve /video/{id}?...&story_type=1
@@ -468,6 +468,8 @@ class MasterDownloader:
             return "stories"
         if "/photo/" in path:
             return "photo"
+        if re.fullmatch(r"/@[^/]+", path):
+            return "profile"
         return "video"
 
     def _tiktok_post_url(self, url):
@@ -932,7 +934,7 @@ class MasterDownloader:
         # url = url.split('?')[0].strip() 
         url = self._resolve_tiktok_short_url(url.strip())
         kind = self._tiktok_url_kind(url)
-        if kind != "video":
+        if kind not in ("video", "profile"):
             # yt-dlp khong tai duoc anh cua bai /photo/ va khong liet ke story
             return self.download_tiktok_gallerydl(url, kind, output_folder=output_folder, progress_callback=progress_callback)
 
@@ -979,6 +981,9 @@ class MasterDownloader:
                 lambda d: self._handle_ydl_progress(d, progress_callback)
             ],
         }
+        if kind == "profile":
+            # yt-dlp tai bai anh thanh file m4a chi co nhac; bai anh de gallery-dl tai
+            ydl_opts_base['match_filter'] = self._skip_tiktok_photo_post
 
         print(f"{Fore.CYAN}🚀 Dang quet TikTok cua: {username}")
         if progress_callback: progress_callback("0%", "Đang lấy thông tin...")
@@ -1036,6 +1041,35 @@ class MasterDownloader:
                 # Cac loi khac thi raise luon
                 print(f"{Fore.RED}❌ Loi TikTok: {e}")
                 raise e
+
+        if kind == "profile":
+            self._download_tiktok_profile_extras(url, folder, progress_callback)
+
+    @staticmethod
+    def _skip_tiktok_photo_post(info, incomplete=False):
+        formats = info.get("formats")
+        if not incomplete and formats and all(f.get("vcodec") == "none" for f in formats):
+            return "Bai anh (gallery-dl se tai)"
+        return None
+
+    def _download_tiktok_profile_extras(self, url, folder, progress_callback=None):
+        """Trang ca nhan: sau video (yt-dlp) tai them bai anh va story qua gallery-dl."""
+        base = url.split("?")[0].split("#")[0].rstrip("/")
+        notes, errors = [], []
+        for kind, part_url in (("photos", base + "/posts"), ("stories", base + "/stories")):
+            try:
+                self.download_tiktok_gallerydl(part_url, kind, output_folder=folder, progress_callback=progress_callback)
+            except RuntimeError as e:
+                # Trang khong co bai anh / story dang hien thi la binh thuong, khong phai loi
+                (notes if str(e).startswith(("Không có story", "Không có bài ảnh")) else errors).append(str(e))
+        if errors:
+            raise RuntimeError("Video đã tải; " + " | ".join(errors))
+        msg = "Đã tải xong video, bài ảnh và story của trang cá nhân."
+        if notes:
+            msg = "Đã tải xong trang cá nhân. " + " ".join(notes)
+        print(f"{Fore.GREEN}{msg}")
+        if progress_callback:
+            progress_callback("100%", msg)
 
     def _gallerydl_cmd(self):
         # Ban exe: sys.executable la chinh app, App.py chuyen tiep --gallery-dl sang gallery_dl
@@ -1099,12 +1133,15 @@ class MasterDownloader:
             "--retries", "3",
             "--http-timeout", "45",
         ]
+        if kind == "photos":
+            # Danh sach bai cua trang ca nhan: chi lay bai anh (video da tai bang yt-dlp)
+            cmd += ["-o", "extractor.tiktok.videos=false"]
         if kind in ("story", "stories"):
             cmd += ["-o", "extractor.tiktok.filename=STORY - {id}{num:?_//>02} {title[b:150]}{file_id:? [/]/}.{extension}"]
         if cookie_file:
             cmd += ["--cookies", cookie_file]
 
-        label = {"photo": "bài ảnh", "story": "story", "stories": "story của trang cá nhân"}.get(kind, kind)
+        label = {"photo": "bài ảnh", "photos": "bài ảnh của trang cá nhân", "story": "story", "stories": "story của trang cá nhân"}.get(kind, kind)
         print(f"{Fore.CYAN}🚀 TikTok {label} cua {username} (gallery-dl)")
         if progress_callback:
             progress_callback("0%", f"Đang tải TikTok {label}...")
@@ -1138,6 +1175,9 @@ class MasterDownloader:
             status = "Error"
         elif retry_urls and "403" in output:
             msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
+            status = "Error"
+        elif code == 0 and "no results for" in output and kind == "photos":
+            msg = "Không có bài ảnh nào."
             status = "Error"
         elif code == 0 and "no results for" in output:
             msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
