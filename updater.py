@@ -7,7 +7,7 @@ import sys
 
 import requests
 
-# Repo public chi chua Release (code nguon private). Doi ten thi sua ca RELEASES_REPO trong .github/workflows/build.yml
+# Repo public chua ca ma nguon lan Release
 RELEASES_REPO = "thientrile/MasterDownloader-releases"
 LATEST_URL = f"https://api.github.com/repos/{RELEASES_REPO}/releases/latest"
 EXE_NAME = "MasterDownloader.exe"
