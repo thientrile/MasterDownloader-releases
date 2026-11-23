@@ -1,0 +1,57 @@
+name: auto-patch
+
+# Moi tuan: yt-dlp/gallery-dl co ban moi so voi Release moi nhat -> build lai ma nguon cua Release do,
+# chi nang yt-dlp/gallery-dl (goi khac ghim theo versions.txt), test, phat hanh vX.Y.Z+1
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: auto-patch
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      base: ${{ steps.check.outputs.base }}
+      pins: ${{ steps.check.outputs.pins }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        # bash -eo pipefail: dep_check.py loi thi buoc do, khong bi `| tee` nuot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" -q length)" == 0 ]]; then
+            echo "::notice::Chua co Release nao de tang patch; hay tag ban dau bang tay"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          # Khong co lock cua ban truoc thi khong biet ghim gi -> khong tu phat hanh
+          if ! gh release view "$latest" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qx versions.txt; then
+            echo "::notice::Release $latest khong co versions.txt; hay phat hanh bang tay"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release download "$latest" --repo "$GITHUB_REPOSITORY" --pattern versions.txt --dir old
+          echo "base=$latest" >> "$GITHUB_OUTPUT"
+          python3 tools/dep_check.py --check --tag "$latest" --released old/versions.txt | tee -a "$GITHUB_OUTPUT"
+
+  release:
+    needs: check
+    if: needs.check.outputs.tag != ''
+    # Tran quyen cho workflow duoc goi: job windows van chi doc, job release trong do moi ghi
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ needs.check.outputs.tag }}
+      base: ${{ needs.check.outputs.base }}
+      pins: ${{ needs.check.outputs.pins }}
