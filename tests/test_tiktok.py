@@ -214,6 +214,11 @@ class ProfileFlowTest(unittest.TestCase):
         self.assertEqual(len(used), 1)
         self.assertNotIn("cookiesfrombrowser", used[0])
 
+    def test_failed_image_is_named_in_gui_error(self):
+        err = "[download][error] Failed to download 1_02 x.jpg"
+        with self.assertRaisesRegex(RuntimeError, r"Failed to download 1_02"):
+            self._download([(4, [err, "/out/linhpntt/1_03 x.jpg"]), (0, ["ok"])])
+
     def test_ytdlp_skips_photo_posts_only(self):
         self._download([(0, ["ok"]), (0, ["ok"])])
         match = self.ydl_calls[0][0]["match_filter"]

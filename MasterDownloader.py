@@ -1186,7 +1186,9 @@ class MasterDownloader:
             msg = "TikTok yêu cầu đăng nhập. Hãy lưu TikTok Cookie của tài khoản xem được nội dung này."
             status = "Need Cookie"
         else:
-            msg = f"gallery-dl lỗi exit code {code}: {lines[-1] if lines else ''}"
+            # Dong cuoi thuong la duong dan file vua tai; bao dong loi cuoi cung neu co
+            detail = next((l for l in reversed(lines) if "][error]" in l), lines[-1] if lines else "")
+            msg = f"gallery-dl lỗi exit code {code}: {detail} (tải lại link để thử lại phần lỗi)"
             status = "Error"
         print(f"{Fore.GREEN if status == '100%' else Fore.RED}{msg}")
         if progress_callback:
