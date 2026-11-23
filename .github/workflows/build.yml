@@ -11,16 +11,11 @@ on:
       tag:
         type: string
         required: true
-    secrets:
-      RELEASES_TOKEN:
-        required: false
 
 permissions:
   contents: read
 
 env:
-  # Repo public chua Release; phai trung updater.RELEASES_REPO (test_updater kiem)
-  RELEASES_REPO: thientrile/MasterDownloader-releases
   # Tag can phat hanh: tu auto-patch, hoac tag v* vua push; rong = build thu, khong phat hanh
   TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
 
@@ -110,24 +105,6 @@ jobs:
             dist/DISCLAIMER.txt
             dist/release-notes.md
 
-  # Kiem RELEASES_TOKEN con ghi duoc repo releases ma khong phat hanh gi: tao roi xoa mot draft
-  # (draft khong cong khai, khong tao tag). Token het han thi PR do, truoc khi tag that bi hong.
-  releases-token:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    steps:
-      - name: Draft release round trip
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error::Secret RELEASES_TOKEN chua duoc dat"
-            exit 1
-          fi
-          tag="token-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          gh release create "$tag" --repo "$RELEASES_REPO" --draft --title "CI token check" --notes "Tu xoa ngay"
-          gh release delete "$tag" --repo "$RELEASES_REPO" --yes
-
   release:
     needs: windows
     if: inputs.tag || startsWith(github.ref, 'refs/tags/v')
@@ -144,23 +121,8 @@ jobs:
       - name: Release notes
         run: sed "s/{{TAG}}/$TAG/g" dist/release-notes.md > notes.md
 
-      # Chay truoc: thieu secret thi fail khi chua phat hanh gi, chay lai job khong vuong release da ton tai
-      - name: Release (public releases repo)
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error::Secret RELEASES_TOKEN chua duoc dat; khong the tao Release o $RELEASES_REPO"
-            exit 1
-          fi
-          flags=()
-          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
-          # Repo releases khong co code nen khong --generate-notes
-          gh release create "$TAG" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt dist/versions.txt \
-            --repo "$RELEASES_REPO" --title "$TAG" --notes-file notes.md "${flags[@]}"
-
-      # Repo goc: ban v1.0.0/v1.0.1 dang cai van hoi releases/latest o day
-      - name: Release (source repo)
+      # Repo nay (MasterDownloader-releases) vua chua ma nguon vua la noi updater doc releases/latest
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

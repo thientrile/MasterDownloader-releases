@@ -44,11 +44,6 @@ class SourceRepoTest(unittest.TestCase):
         self.assertEqual(updater.LATEST_URL,
                          f"https://api.github.com/repos/{updater.RELEASES_REPO}/releases/latest")
 
-    def test_workflow_publishes_to_same_repo(self):
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, ".github", "workflows", "build.yml"), encoding="utf-8") as f:
-            self.assertIn(f"RELEASES_REPO: {updater.RELEASES_REPO}\n", f.read())
-
 
 class VersionTest(unittest.TestCase):
     def test_parse(self):

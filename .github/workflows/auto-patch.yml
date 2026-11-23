@@ -23,6 +23,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" -q length)" == 0 ]]; then
+            echo "::notice::Chua co Release nao de tang patch; hay tag ban dau bang tay"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
           args=(--check --tag "$latest")
           if gh release view "$latest" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qx versions.txt; then
@@ -40,5 +45,3 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       tag: ${{ needs.check.outputs.tag }}
-    secrets:
-      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
