@@ -983,7 +983,14 @@ class MasterDownloader:
         }
         if kind == "profile":
             # yt-dlp tai bai anh thanh file m4a chi co nhac; bai anh de gallery-dl tai
-            ydl_opts_base['match_filter'] = self._skip_tiktok_photo_post
+            photo_ids = set()
+
+            def skip_photo(info, incomplete=False):
+                reason = self._skip_tiktok_photo_post(info, incomplete)
+                if reason:
+                    photo_ids.add(info.get("id"))
+                return reason
+            ydl_opts_base['match_filter'] = skip_photo
 
         print(f"{Fore.CYAN}🚀 Dang quet TikTok cua: {username}")
         if progress_callback: progress_callback("0%", "Đang lấy thông tin...")
@@ -1043,7 +1050,7 @@ class MasterDownloader:
                 raise e
 
         if kind == "profile":
-            self._download_tiktok_profile_extras(url, folder, progress_callback)
+            self._download_tiktok_profile_extras(url, folder, progress_callback, has_photos=bool(photo_ids))
 
     @staticmethod
     def _skip_tiktok_photo_post(info, incomplete=False):
@@ -1052,16 +1059,25 @@ class MasterDownloader:
             return "Bai anh (gallery-dl se tai)"
         return None
 
-    def _download_tiktok_profile_extras(self, url, folder, progress_callback=None):
-        """Trang ca nhan: sau video (yt-dlp) tai them bai anh va story qua gallery-dl."""
+    def _download_tiktok_profile_extras(self, url, folder, progress_callback=None, has_photos=True):
+        """Trang ca nhan: sau video (yt-dlp) tai them bai anh va story qua gallery-dl.
+
+        has_photos: danh sach bai cua yt-dlp co bai anh. gallery-dl bao "Could not extract
+        any posts" ca khi bi chan lan khi trang chi co video, nen dua vao yt-dlp de phan biet.
+        """
         base = url.split("?")[0].split("#")[0].rstrip("/")
         notes, errors = [], []
-        for kind, part_url in (("photos", base + "/posts"), ("stories", base + "/stories")):
+        parts = [("stories", base + "/stories")]
+        if has_photos:
+            parts.insert(0, ("photos", base + "/posts"))
+        else:
+            notes.append("Không có bài ảnh nào.")
+        for kind, part_url in parts:
             try:
                 self.download_tiktok_gallerydl(part_url, kind, output_folder=folder, progress_callback=progress_callback)
             except RuntimeError as e:
                 # Trang khong co bai anh / story dang hien thi la binh thuong, khong phai loi
-                (notes if str(e).startswith(("Không có story", "Không có bài ảnh")) else errors).append(str(e))
+                (notes if str(e).startswith("Không có story") else errors).append(str(e))
         if errors:
             raise RuntimeError("Video đã tải; " + " | ".join(errors))
         msg = "Đã tải xong video, bài ảnh và story của trang cá nhân."
@@ -1176,8 +1192,9 @@ class MasterDownloader:
         elif retry_urls and "403" in output:
             msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
-        elif code == 0 and "no results for" in output and kind == "photos":
-            msg = "Không có bài ảnh nào."
+        elif kind == "photos" and ("could not extract any posts" in output or "no results for" in output):
+            # Chi goi khi yt-dlp da thay bai anh: danh sach rong nghia la TikTok chan API
+            msg = "TikTok không trả danh sách bài ảnh (có thể đang chặn). Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
         elif code == 0 and "no results for" in output:
             msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
