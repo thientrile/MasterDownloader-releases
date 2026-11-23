@@ -317,6 +317,32 @@ class ProfileFlowTest(unittest.TestCase):
         self.assertIn("--cookies", stories)
         self.assertEqual(self.progress[-1][0], "100%")
 
+    def _with_cookie(self):
+        self.dl.get_manual_cookie = lambda platform: "sessionid=expired"
+        self.dl.data_dir = self.tmp.name
+
+    def test_cookie_run_with_ordinary_error_is_not_retried(self):
+        # 1 anh loi mang -> exit 4, khong phai dau hieu cookie hong: khong chay lai ca danh sach
+        self._with_cookie()
+        with self.assertRaisesRegex(RuntimeError, "Failed to download 1_02"):
+            self._download([(4, ["[download][error] Failed to download 1_02 x.jpg"]), (0, ["ok"])])
+        self.assertEqual(len(self.gdl_calls), 2)
+        self.assertEqual(self.gdl_calls[1][-1], "https://www.tiktok.com/@linhpntt/stories")
+
+    def test_failed_no_cookie_retry_keeps_cookie_run_message(self):
+        self._with_cookie()
+        login = "[tiktok][error] HttpError: login required"
+        with self.assertRaisesRegex(RuntimeError, "TikTok tạm chặn") as ctx:
+            self._download([(1, [self.PARSE_JSON]), (1, [login]), (0, ["ok"])])
+        self.assertNotIn("đăng nhập", str(ctx.exception))
+        self.assertEqual(len(self.gdl_calls), 3)
+
+    def test_other_unexpected_error_is_shown_as_is(self):
+        disk = "[tiktok][error] An unexpected error occurred: OSError - [Errno 28] No space left on device"
+        with self.assertRaisesRegex(RuntimeError, "No space left on device") as ctx:
+            self._download([(1, [disk]), (0, ["ok"])])
+        self.assertNotIn("TikTok tạm chặn", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

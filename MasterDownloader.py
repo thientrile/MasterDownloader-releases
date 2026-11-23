@@ -1201,10 +1201,11 @@ class MasterDownloader:
         return code, lines, retry_urls
 
     @staticmethod
-    def _tiktok_gallerydl_failed(code, lines):
-        """Loi kieu bi chan/tra rong: dang thu lai khong cookie."""
+    def _tiktok_gallerydl_failed(lines):
+        """Dau hieu cookie hong/danh sach rong. Khong xet exit code: 403 le, loi mang 1 file,
+        ffmpeg loi o MP3 cung thoat khac 0 nhung chay lai ca danh sach khong giup gi."""
         output = "\n".join(lines).lower()
-        return code != 0 or "could not extract any posts for this user" in output or any(
+        return "failed to parse json" in output or "could not extract any posts for this user" in output or any(
             "][error]" in l and "failed to retrieve" in l.lower() for l in lines)
 
     def download_tiktok_gallerydl(self, url, kind, output_folder=None, progress_callback=None):
@@ -1250,10 +1251,13 @@ class MasterDownloader:
 
         code, lines, retry_urls = self._run_tiktok_gallerydl(
             cmd + (["--cookies", cookie_file] if cookie_file else []), url, progress_callback)
-        if cookie_file and self._tiktok_gallerydl_failed(code, lines):
+        if cookie_file and self._tiktok_gallerydl_failed(lines):
             # Cookie da luu co the het han/hong: TikTok tra rong. Thu lai khong cookie.
             print(f"{Fore.YELLOW}⚠️  TikTok loi khi dung cookie da luu, thu lai khong cookie...")
-            code, lines, retry_urls = self._run_tiktok_gallerydl(cmd, url, progress_callback)
+            retry = self._run_tiktok_gallerydl(cmd, url, progress_callback)
+            if retry[0] == 0 and not self._tiktok_gallerydl_failed(retry[1]):
+                code, lines, retry_urls = retry
+            # Khong cookie cung loi: giu ket qua (va thong bao) cua lan co cookie
 
         output = "\n".join(lines).lower()
         # Chi tinh dong ][error]: ][warning] "failed to retrieve" la lan thu lai, co the da thanh cong
@@ -1282,7 +1286,7 @@ class MasterDownloader:
         elif code == 0 and "no results for" in output:
             msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
             status = "Error"
-        elif "failed to parse json" in output or "an unexpected error occurred" in output:
+        elif "failed to parse json" in output or ("an unexpected error occurred" in output and "downloaderror" in output):
             # TikTok tra trang rong (tam chan) - vd. "DownloadError - ERROR: x: Failed to parse JSON"
             msg = "TikTok tạm chặn hoặc trả dữ liệu rỗng. Hãy đợi vài phút rồi tải lại; nếu vẫn lỗi, cập nhật lại TikTok Cookie."
             status = "Error"
