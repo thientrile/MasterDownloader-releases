@@ -196,6 +196,24 @@ class ProfileFlowTest(unittest.TestCase):
             self.assertEqual(cmd[cmd.index("--download-archive") + 1], os.path.join(folder, ".masterdownloader_tiktok_gallerydl_linhpntt.sqlite3"))
         self.assertEqual(self.progress[-1][0], "100%")
 
+    def test_edge_cookie_failure_falls_back_to_no_cookies(self):
+        # yt-dlp boc loi doc cookie Edge thanh CookieLoadError('failed to load cookies')
+        from yt_dlp.cookies import CookieLoadError
+        used = []
+
+        def prepare(opts, label):
+            if "cookiesfrombrowser" in opts:
+                raise CookieLoadError("failed to load cookies")
+            ydl = mock.MagicMock()
+            ydl.__enter__.return_value.download.side_effect = lambda urls: used.append(opts)
+            return ydl
+
+        with mock.patch.object(self.dl, "_prepare_yt_dlp", side_effect=prepare), \
+                mock.patch.object(self.dl, "_run_gallerydl", return_value=(0, ["ok"])):
+            self.dl.download_tiktok(self.PROFILE)
+        self.assertEqual(len(used), 1)
+        self.assertNotIn("cookiesfrombrowser", used[0])
+
     def test_ytdlp_skips_photo_posts_only(self):
         self._download([(0, ["ok"]), (0, ["ok"])])
         match = self.ydl_calls[0][0]["match_filter"]

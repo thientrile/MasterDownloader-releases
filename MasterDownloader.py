@@ -1022,7 +1022,7 @@ class MasterDownloader:
             except Exception as e:
                 err_msg = str(e)
                 # Check loi permission (do mo trinh duyet) hoac loi load cookie
-                is_cookie_error = "Permission denied" in err_msg or "CookieLoadError" in err_msg or "Could not copy" in err_msg
+                is_cookie_error = type(e).__name__ == "CookieLoadError" or "Permission denied" in err_msg or "Could not copy" in err_msg
                 
                 if is_cookie_error:
                     if label == "Browser Cookies":
@@ -1263,7 +1263,7 @@ class MasterDownloader:
                     print(f"{Fore.YELLOW}⚠️  IG yt-dlp bi chan voi {label}: {e}")
                     continue
                 err_msg = str(e)
-                is_cookie_error = "Permission denied" in err_msg or "CookieLoadError" in err_msg or "Could not copy" in err_msg
+                is_cookie_error = type(e).__name__ == "CookieLoadError" or "Permission denied" in err_msg or "Could not copy" in err_msg
                 if is_cookie_error:
                     print(f"{Fore.YELLOW}⚠️  Khong doc duoc cookie IG voi {label}: {e}")
                     continue
@@ -1701,7 +1701,7 @@ class MasterDownloader:
             except Exception as e:
                 last_error = e
                 err_msg = str(e)
-                is_cookie_error = "Permission denied" in err_msg or "CookieLoadError" in err_msg or "Could not copy" in err_msg
+                is_cookie_error = type(e).__name__ == "CookieLoadError" or "Permission denied" in err_msg or "Could not copy" in err_msg
                 if is_cookie_error:
                     print(f"{Fore.YELLOW}⚠️  Khong doc duoc cookie Edge cho Facebook. Thu tiep khong cookie...")
                     continue
