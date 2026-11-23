@@ -2,9 +2,12 @@
 
 App desktop (PyQt6) tải video/ảnh từ TikTok, Instagram, Facebook, kèm quét và xoá file trùng (MD5).
 
+Đây là repo mã nguồn và bản phát hành của MasterDownloader. Giấy phép: **GPL-3.0**.
+This is the source code and release repository of MasterDownloader. License: **GPL-3.0**.
+
 ## Tải bản Windows
 
-Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases/latest) (repo public chỉ chứa bản phát hành):
+Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases/latest):
 
 - **`MasterDownloader-Setup.exe`** (khuyên dùng): bộ cài theo người dùng, không cần quyền admin. Cài vào `%LOCALAPPDATA%\Programs\MasterDownloader`, có shortcut Start Menu (tuỳ chọn Desktop) và gỡ cài đặt trong **Settings → Apps**. Gỡ cài đặt không xoá dữ liệu ở `%APPDATA%\MasterDownloader`.
 - `MasterDownloader.exe`: bản portable, chạy trực tiếp không cần cài.
