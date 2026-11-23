@@ -23,6 +23,7 @@ def make_downloader(root):
     dl.history = {}
     dl.save_history = lambda: None
     dl.get_manual_cookie = lambda platform: None
+    dl.archive_dir = root
     return dl
 
 
@@ -36,7 +37,8 @@ class UrlKindTest(unittest.TestCase):
             VIDEO + "?story_type=0&aweme_type=0": "video",
             VIDEO + "?aweme_type=400": "video",
             VIDEO + "?aweme_type=40": "story",
-            "https://www.tiktok.com/@linhpntt": "video",
+            "https://www.tiktok.com/@linhpntt": "profile",
+            "https://www.tiktok.com/@linhpntt/?lang=vi": "profile",
             PHOTO_RESOLVED: "photo",
             STORY_RESOLVED: "story",
             "https://www.tiktok.com/@chang18102003/story/7710581771921935636": "story",
@@ -146,6 +148,126 @@ class GalleryDlFlowTest(unittest.TestCase):
         stories = "https://www.tiktok.com/@chang18102003/stories"
         with self.assertRaisesRegex(RuntimeError, "STORY - 2"):
             self._download(stories, stories, [(4, [fail, other]), (0, ["ok"])])
+
+
+class ProfileFlowTest(unittest.TestCase):
+    PROFILE = "https://www.tiktok.com/@linhpntt?lang=vi"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dl = make_downloader(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    POSTS = "https://www.tiktok.com/@linhpntt/posts"
+    # Dong log that cua gallery-dl 1.32 (extractor tiktok, creator/item_list)
+    PAGE1 = f"[tiktok][info] {POSTS}: retrieving creator/item_list page 1 (0 items)"
+    NONE_LEFT = "[tiktok][warning] Could not extract any posts from TikTok user linhpntt, try extracting post information using yt-dlp with the -o ytdl=true argument"
+    NO_RESULTS = f"[tiktok][info] No results for {POSTS}"
+
+    def _download(self, runs):
+        # yt-dlp mock khong goi match_filter: ban that co the loi o bai anh truoc khi loc
+        ydl_calls, gdl_calls, progress = [], [], []
+
+        def fake_prepare(opts, label):
+            ydl = mock.MagicMock()
+            ydl.__enter__.return_value.download.side_effect = lambda urls: ydl_calls.append((opts, urls))
+            return ydl
+
+        def fake_run(cmd, progress_callback=None):
+            gdl_calls.append(cmd)
+            return runs[len(gdl_calls) - 1]
+
+        with mock.patch.object(self.dl, "_prepare_yt_dlp", side_effect=fake_prepare), \
+                mock.patch.object(self.dl, "_run_gallerydl", side_effect=fake_run):
+            try:
+                self.dl.download_tiktok(self.PROFILE, progress_callback=lambda s, m: progress.append((s, m)))
+            finally:
+                self.ydl_calls, self.gdl_calls, self.progress = ydl_calls, gdl_calls, progress
+
+    def test_profile_downloads_videos_photos_and_stories(self):
+        self._download([(0, ["ok"]), (0, ["ok"])])
+        (opts, urls), = self.ydl_calls
+        self.assertEqual(urls, [self.PROFILE])
+        folder = os.path.join(self.tmp.name, "linhpntt")
+        self.assertTrue(opts["download_archive"].startswith(folder))
+        photos, stories = self.gdl_calls
+        self.assertEqual(photos[-1], "https://www.tiktok.com/@linhpntt/posts")
+        self.assertIn("extractor.tiktok.videos=false", photos)
+        self.assertNotIn("STORY - ", " ".join(photos))
+        self.assertEqual(stories[-1], "https://www.tiktok.com/@linhpntt/stories")
+        self.assertIn("STORY - ", " ".join(stories))
+        for cmd in (photos, stories):
+            self.assertEqual(cmd[cmd.index("--directory") + 1], folder)
+            self.assertEqual(cmd[cmd.index("--download-archive") + 1], os.path.join(folder, ".masterdownloader_tiktok_gallerydl_linhpntt.sqlite3"))
+        self.assertEqual(self.progress[-1][0], "100%")
+
+    def test_edge_cookie_failure_falls_back_to_no_cookies(self):
+        # yt-dlp boc loi doc cookie Edge thanh CookieLoadError('failed to load cookies')
+        from yt_dlp.cookies import CookieLoadError
+        used = []
+
+        def prepare(opts, label):
+            if "cookiesfrombrowser" in opts:
+                raise CookieLoadError("failed to load cookies")
+            ydl = mock.MagicMock()
+            ydl.__enter__.return_value.download.side_effect = lambda urls: used.append(opts)
+            return ydl
+
+        with mock.patch.object(self.dl, "_prepare_yt_dlp", side_effect=prepare), \
+                mock.patch.object(self.dl, "_run_gallerydl", return_value=(0, ["ok"])):
+            self.dl.download_tiktok(self.PROFILE)
+        self.assertEqual(len(used), 1)
+        self.assertNotIn("cookiesfrombrowser", used[0])
+
+    def test_failed_image_is_named_in_gui_error(self):
+        err = "[download][error] Failed to download 1_02 x.jpg"
+        with self.assertRaisesRegex(RuntimeError, r"Failed to download 1_02"):
+            self._download([(4, [err, "/out/linhpntt/1_03 x.jpg"]), (0, ["ok"])])
+
+    def test_ytdlp_skips_photo_posts_only(self):
+        self._download([(0, ["ok"]), (0, ["ok"])])
+        match = self.ydl_calls[0][0]["match_filter"]
+        photo = {"formats": [{"vcodec": "none", "acodec": "aac"}]}
+        video = {"formats": [{"vcodec": "none"}, {"vcodec": "h264"}]}
+        self.assertIsNotNone(match(photo, incomplete=False))
+        self.assertIsNone(match(photo, incomplete=True))
+        self.assertIsNone(match(video, incomplete=False))
+        self.assertIsNone(match({"url": "x"}, incomplete=True))
+
+    def test_video_only_profile_and_no_stories_is_not_an_error(self):
+        # Danh sach co bai nhung videos=false loc het
+        video_only = (0, [self.PAGE1, self.NONE_LEFT, self.NO_RESULTS])
+        no_story = (0, ["[tiktok][info] No results for https://www.tiktok.com/@linhpntt/stories"])
+        self._download([video_only, no_story])
+        status, msg = self.progress[-1]
+        self.assertEqual(status, "100%")
+        self.assertIn("Không có story", msg)
+        self.assertIn("Không có bài ảnh", msg)
+
+    def _assert_list_error(self, lines):
+        with self.assertRaisesRegex(RuntimeError, "không trả danh sách bài"):
+            self._download([(0, lines), (0, ["ok"])])
+        self.assertNotIn("Đã tải xong video, bài ảnh và story của trang cá nhân.", [m for _, m in self.progress])
+
+    def test_empty_first_page_is_an_error(self):
+        # TikTok tra trang dau rong (bi chan): gallery-dl van thoat 0 voi "No results"
+        self._assert_list_error([self.PAGE1, f"[tiktok][warning] {self.POSTS}: could not extract any posts for this user",
+                                 self.NONE_LEFT, self.NO_RESULTS])
+
+    def test_failed_list_request_is_an_error(self):
+        self._assert_list_error([self.PAGE1, f"[tiktok][warning] {self.POSTS}: failed to retrieve creator/item_list page 1",
+                                 f"[tiktok][error] {self.POSTS}: failed to retrieve creator/item_list page 1",
+                                 self.NONE_LEFT, self.NO_RESULTS])
+
+    def test_story_403_after_retry_fails_row_but_photos_still_run(self):
+        post = "https://www.tiktok.com/@linhpntt/video/1"
+        fail = f"[tiktok][error] {post}: Failed to extract post (HttpError: '403 Forbidden' for '{post}')"
+        with self.assertRaisesRegex(RuntimeError, r"chặn \(403\)"):
+            self._download([(0, ["ok"]), (4, [fail]), (4, [fail])])
+        self.assertEqual(len(self.gdl_calls), 3)
+        self.assertEqual(self.gdl_calls[2][-1], post)
 
 
 if __name__ == "__main__":
