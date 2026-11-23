@@ -87,6 +87,8 @@ jobs:
 
       # Exe da dong goi phai chay duoc gallery-dl/yt-dlp ben trong va dung ban vua cai
       - name: Smoke test exe
+        # exe treo (vd. mo GUI thay vi chay lenh) thi do sau 5 phut, khong doi 6 gio
+        timeout-minutes: 5
         shell: bash
         run: |
           check() {
