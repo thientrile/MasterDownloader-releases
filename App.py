@@ -1614,6 +1614,10 @@ if __name__ == "__main__":
         import gallery_dl
         sys.argv = ["gallery-dl"] + sys.argv[2:]
         sys.exit(gallery_dl.main())
+    if len(sys.argv) > 1 and sys.argv[1] == "--yt-dlp":
+        # Chi de CI kiem yt-dlp trong exe (smoke test)
+        import yt_dlp
+        yt_dlp.main(sys.argv[2:])
     enable_crash_logging()
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
