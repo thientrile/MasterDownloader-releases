@@ -1,5 +1,11 @@
+import functools
+import http.server
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -61,6 +67,160 @@ class FfmpegLocationTest(unittest.TestCase):
         dl = make_downloader()
         dl._get_ffmpeg_exe = lambda: None
         self.assertNotIn("-o", dl._gallerydl_cmd())
+
+
+class AudioOnlyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dl = make_downloader()
+        self.dl._rate_limit_ydl_opts = lambda: {}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _opts(self, audio_only):
+        self.dl.audio_only = audio_only
+        archive = os.path.join(self.tmp.name, "a.txt")
+        base = {"format": self.dl._video_format(), "download_archive": archive, "writethumbnails": True,
+                "postprocessors": [{"key": "FFmpegThumbnailsConvertor", "format": "jpg"}]}
+        with mock.patch("MasterDownloader.yt_dlp.YoutubeDL") as ydl:
+            self.dl._prepare_yt_dlp(base, "test")
+        return ydl.call_args[0][0], archive
+
+    def test_off_keeps_video_options(self):
+        opts, archive = self._opts(False)
+        self.assertEqual(opts["format"], self.dl._video_format())
+        self.assertEqual(opts["download_archive"], archive)
+        self.assertTrue(opts["writethumbnails"])
+
+    def test_on_extracts_mp3_with_app_ffmpeg_and_own_archive(self):
+        opts, archive = self._opts(True)
+        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+            def pick(formats):
+                # incomplete_formats tinh nhu yt-dlp: chi toan audio hoac toan video
+                incomplete = all(f["vcodec"] == "none" for f in formats) or all(f["acodec"] == "none" for f in formats)
+                ctx = {"formats": formats, "has_merged_format": False, "incomplete_formats": incomplete}
+                return list(ydl.build_format_selector(opts["format"])(ctx))[0]["format_id"]
+
+            music = {"format_id": "audio", "url": "http://x/m", "ext": "mp3", "vcodec": "none", "acodec": "mp3"}
+            play = {"format_id": "h264_540p", "url": "http://x/p", "ext": "mp4", "vcodec": "h264", "acodec": "aac", "height": 1024}
+            self.assertEqual(pick([music, play]), "h264_540p")  # TikTok video: tieng cua video, khong phai nhac nen
+            self.assertEqual(pick([music]), "audio")  # TikTok bai anh: chi co nhac nen
+            self.assertEqual(pick(DASH_FORMATS), "a128")  # Facebook/IG DASH: luong audio
+        self.assertEqual(opts["postprocessors"], [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}])
+        self.assertEqual(opts["ffmpeg_location"], FFMPEG)
+        self.assertFalse(opts["writethumbnails"])
+        self.assertEqual(opts["download_archive"], os.path.join(self.tmp.name, "a_mp3.txt"))
+
+    def test_gallerydl_filter_drops_images_only_in_audio_mode(self):
+        self.assertNotIn("--filter", self.dl._gallerydl_cmd())
+        self.dl.audio_only = True
+        cmd = self.dl._gallerydl_cmd()
+        expr = cmd[cmd.index("--filter") + 1]
+        for ext, keep in (("mp4", True), ("mp3", True), ("m4a", True), ("jpg", False), ("webp", False)):
+            self.assertEqual(eval(expr, {"extension": ext}), keep, ext)
+
+    def _convert(self, returncode):
+        video = os.path.join(self.tmp.name, "clip.mp4")
+        old = os.path.join(self.tmp.name, "old.mp4")
+        for path in (video, old):
+            open(path, "wb").close()
+        with mock.patch("MasterDownloader.subprocess.run") as run:
+            run.return_value.returncode = returncode
+            run.return_value.stderr = "boom"
+            errors = self.dl._convert_videos_to_mp3([video, "# " + old, "[tiktok][info] x"])
+        return run, video, old, errors
+
+    def test_new_video_converted_then_removed(self):
+        run, video, old, errors = self._convert(0)
+        args = run.call_args_list[0][0][0]
+        self.assertEqual((args[0], args[args.index("-i") + 1], args[-1]), (FFMPEG, video, video[:-4] + ".mp3"))
+        self.assertEqual(errors, [])
+        self.assertFalse(os.path.exists(video))
+
+    def test_existing_video_converted_but_kept(self):
+        # "# path": video nguoi dung da co tu truoc, chi tach mp3
+        run, video, old, errors = self._convert(0)
+        self.assertEqual([c[0][0][-1] for c in run.call_args_list], [video[:-4] + ".mp3", old[:-4] + ".mp3"])
+        self.assertTrue(os.path.exists(old))
+
+    def test_existing_video_with_mp3_is_skipped(self):
+        open(os.path.join(self.tmp.name, "old.mp3"), "wb").close()
+        run, video, old, errors = self._convert(0)
+        run.assert_called_once()
+
+    def test_failed_conversion_keeps_video_and_reports(self):
+        run, video, old, errors = self._convert(1)
+        self.assertTrue(os.path.exists(video))
+        self.assertEqual(len(errors), 2)
+        self.assertIn("boom", errors[0])
+
+    def _run_job(self, mode_at_start, mode_at_end):
+        # Lenh dung luc bat dau luot tai; nguoi dung doi tuy chon truoc khi gallery-dl chay xong
+        self.dl.audio_only = mode_at_start
+        filter_args = self.dl._gallerydl_cmd()[3:]
+        self.dl.audio_only = mode_at_end
+        self.dl.base_dir = self.tmp.name
+        converted = []
+        self.dl._convert_videos_to_mp3 = lambda lines: converted.append(lines) or ["[mp3][error] x"]
+        code, lines = self.dl._run_gallerydl([sys.executable, "-c", "print('hi')", *filter_args])
+        return code, lines, converted
+
+    def test_run_gallerydl_fails_when_conversion_fails(self):
+        code, lines, converted = self._run_job(True, True)
+        self.assertEqual(code, 1)
+        self.assertEqual(lines[-1], "[mp3][error] x")
+
+    def test_toggling_mid_download_keeps_job_mode(self):
+        self.assertEqual(self._run_job(False, True)[2], [])  # luot video: khong doi/xoa video
+        self.assertEqual(len(self._run_job(True, False)[2]), 1)  # luot MP3 van doi sang mp3
+
+
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+class ExistingVideoTest(unittest.TestCase):
+    """Chay that yt-dlp + ffmpeg qua HTTP cuc bo (khong can mang)."""
+
+    def setUp(self):
+        import imageio_ffmpeg
+        self.ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)  # addCleanup chay nguoc: server tat truoc khi xoa thu muc
+        self.src = os.path.join(tmp.name, "src", "clip.mp4")
+        os.makedirs(os.path.dirname(self.src))
+        subprocess.run([self.ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1",
+                        "-f", "lavfi", "-i", "color=size=64x64:duration=1", "-shortest", self.src], check=True)
+        self.out = os.path.join(tmp.name, "out")
+        os.makedirs(self.out)
+        # HTTP cuc bo thay file:// (handler file:// cua yt-dlp de mo file, Windows khong xoa duoc)
+        handler = functools.partial(QuietHandler, directory=os.path.dirname(self.src))
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}/clip.mp4"
+
+    def test_mp3_run_keeps_video_user_already_has(self):
+        # Video cung ten tai truoc do o che do video: yt-dlp coi la "already downloaded"
+        mine = os.path.join(self.out, "clip.mp4")
+        shutil.copy(self.src, mine)
+        with open(mine, "rb") as f:
+            before = f.read()
+        dl = object.__new__(MasterDownloader)
+        dl._rate_limit_ydl_opts = lambda: {}
+        dl.audio_only = True
+        opts = {"quiet": True, "outtmpl": os.path.join(self.out, "%(title)s.%(ext)s"),
+                "download_archive": os.path.join(self.out, "a.txt")}
+        with dl._prepare_yt_dlp(opts, "test") as ydl:
+            ydl.download([self.url])
+        self.assertTrue(os.path.exists(mine), "lượt MP3 đã xoá video có sẵn")
+        with open(mine, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertTrue(os.path.getsize(os.path.join(self.out, "clip.mp3")) > 0)
+        self.assertEqual(sorted(os.listdir(self.out)), ["a_mp3.txt", "clip.mp3", "clip.mp4"])
 
 
 if __name__ == "__main__":

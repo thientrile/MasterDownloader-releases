@@ -49,6 +49,7 @@ def app_data_dir(base_dir):
     return target
 
 class MasterDownloader:
+    audio_only = False  # Chi tai am thanh (MP3); App dat theo cai dat nguoi dung
     def __init__(self):
         # Determine if we are running in a bundle or a normal python environment
         if getattr(sys, 'frozen', False):
@@ -588,6 +589,19 @@ class MasterDownloader:
         """Build a YoutubeDL instance with resilient archive handling."""
         opts = self._rate_limit_ydl_opts()
         opts.update(ydl_opts)
+        if self.audio_only:
+            # Format 'audio' cua TikTok la nhac nen (music.playUrl), khong phai tieng cua video:
+            # tach tieng tu video; chi lay nhac nen khi bai khong co video (bai anh)
+            opts['format'] = 'bestaudio[format_id!=audio]/best/bestaudio'
+            opts['writethumbnails'] = False
+            opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+            opts['download_archive'] = self._audio_archive(opts.get('download_archive'))
+            # FFmpegExtractAudio xoa video sau khi tach; video cung ten nguoi dung da tai truoc do
+            # se bi coi la "already downloaded" roi bi xoa. Tai vao thu muc tam, chi dua mp3 ra.
+            if isinstance(opts.get('outtmpl'), str):
+                folder, name = os.path.split(opts['outtmpl'])
+                opts['outtmpl'] = os.path.join(folder, '.mp3_tmp', name)
+                opts['post_hooks'] = [lambda path: self._move_out_of_mp3_tmp(path, folder)]
 
         # Tro yt-dlp den ffmpeg (uu tien PATH, fallback imageio-ffmpeg) de merge format/convert
         if not opts.get('ffmpeg_location'):
@@ -619,6 +633,21 @@ class MasterDownloader:
                 opts.pop('download_archive', None)
                 return yt_dlp.YoutubeDL(opts)
             raise
+
+    @staticmethod
+    def _move_out_of_mp3_tmp(path, folder):
+        os.replace(path, os.path.join(folder, os.path.basename(path)))
+        try:
+            os.rmdir(os.path.dirname(path))
+        except OSError:
+            pass  # con file cua luot khac dang tai
+
+    def _audio_archive(self, path):
+        # Ban MP3 va ban video la 2 file khac nhau: archive rieng de bat/tat che do khong chan nhau
+        if not self.audio_only or not path:
+            return path
+        root, ext = os.path.splitext(path)
+        return f"{root}_mp3{ext}"
 
     def resolve_folder(self, platform, username, default_folder):
         # Dung chung mot key theo username cho ca IG/TikTok
@@ -1080,6 +1109,10 @@ class MasterDownloader:
         if ffmpeg:
             for scope in ("downloader", "extractor"):
                 cmd += ["-o", f"{scope}.ytdl.raw-options.ffmpeg_location={ffmpeg}"]
+        if self.audio_only:
+            # Bo anh; video se doi sang mp3 sau khi tai (_convert_videos_to_mp3), nhac bai anh da la mp3
+            exts = sorted({e.lstrip(".") for e in self._video_extensions()} | {"mp3", "m4a"})
+            cmd += ["--filter", f"extension in {tuple(exts)!r}"]
         return cmd
 
     def _run_gallerydl(self, cmd, progress_callback=None):
@@ -1104,7 +1137,45 @@ class MasterDownloader:
             print(line)
             if progress_callback:
                 progress_callback("Running", line[-160:])
-        return process.wait(), lines
+        process.stdout.close()
+        code = process.wait()
+        # Theo che do luc dung lenh, khong theo cai dat hien tai: nguoi dung co the bat/tat giua luot tai
+        if any(arg.startswith("extension in (") for arg in cmd):
+            errors = self._convert_videos_to_mp3(lines)
+            if errors:
+                code, lines = code or 1, lines + errors
+        return code, lines
+
+    def _convert_videos_to_mp3(self, lines):
+        """Che do MP3: doi video gallery-dl vua tai (dong output la duong dan file) sang mp3."""
+        ffmpeg = self._get_ffmpeg_exe()
+        errors = []
+        for line in lines:
+            line = line.strip()
+            # "# path": video da co tu truoc (vd. tai o che do video) -> tach mp3 nhung giu video
+            existing = line.startswith("# ")
+            path = line[2:] if existing else line
+            root, ext = os.path.splitext(path)
+            if ext.lower() not in self._video_extensions() or not os.path.isfile(path):
+                continue
+            if existing and os.path.exists(root + ".mp3"):
+                continue
+            result = None
+            if ffmpeg:
+                result = subprocess.run(
+                    [ffmpeg, "-y", "-loglevel", "error", "-i", path, "-vn", "-c:a", "libmp3lame", "-q:a", "2", root + ".mp3"],
+                    capture_output=True, text=True, errors="replace",
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            if result is not None and result.returncode == 0:
+                if not existing:
+                    os.remove(path)
+                print(f"{Fore.GREEN}🎵 {root}.mp3")
+            else:
+                # Giu lai video de khong mat du lieu
+                reason = (result.stderr.strip().splitlines() or ["?"])[-1] if result is not None else "không có ffmpeg"
+                errors.append(f"[mp3][error] Không đổi được sang MP3 ({reason}), giữ lại video: {path}")
+        return errors
 
     def download_tiktok_gallerydl(self, url, kind, output_folder=None, progress_callback=None):
         """TikTok bai anh (/photo/), story le va story cua trang ca nhan, qua gallery-dl."""
@@ -1127,7 +1198,7 @@ class MasterDownloader:
             "--no-input",
             "--no-colors",
             "--directory", folder,
-            "--download-archive", archive_path,
+            "--download-archive", self._audio_archive(archive_path),
             "--sleep", "1-3",
             "--sleep-request", "2-5",
             "--retries", "3",
@@ -1167,7 +1238,13 @@ class MasterDownloader:
                 code, lines = code or 1, lines + other_errors
 
         output = "\n".join(lines).lower()
-        if code == 0 and "no results for" not in output:
+        # Chi tinh dong ][error]: ][warning] "failed to retrieve" la lan thu lai, co the da thanh cong
+        list_failed = kind == "photos" and any("][error]" in l and "failed to retrieve" in l.lower() for l in lines)
+        if list_failed and "no results for" not in output:
+            # gallery-dl loi o trang N cua danh sach nhung van thoat 0 voi cac bai cua trang truoc
+            msg = "Chỉ tải được một phần bài ảnh (TikTok lỗi khi lấy tiếp danh sách). Tải lại link để lấy tiếp."
+            status = "Error"
+        elif code == 0 and "no results for" not in output:
             msg = f"Đã tải xong TikTok {label}."
             status = "100%"
         elif "could not extract any stories" in output or ("no results for" in output and kind == "stories" and not retry_urls):
@@ -1176,7 +1253,7 @@ class MasterDownloader:
         elif retry_urls and "403" in output:
             msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
-        elif kind == "photos" and ("failed to retrieve" in output or "could not extract any posts for this user" in output):
+        elif kind == "photos" and (list_failed or "could not extract any posts for this user" in output):
             # API danh sach loi, hoac trang dau tra rong (bi chan / trang chua co bai nao)
             msg = "TikTok không trả danh sách bài của trang (có thể đang chặn). Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
@@ -1316,7 +1393,7 @@ class MasterDownloader:
             "--no-input",
             "--no-colors",
             "--directory", folder,
-            "--download-archive", archive_path,
+            "--download-archive", self._audio_archive(archive_path),
             "--sleep", f"{self.ig_sleep_range[0]}-{self.ig_sleep_range[1]}",
             "--sleep-request", "8-20",
             "--sleep-429", "300-900",
