@@ -98,6 +98,7 @@ def main(out_dir):
     dlg.close()
 
     w.nav.setCurrentRow(2)
+    w.chk_audio_only.setChecked(True)  # cho thay tuy chon MP3 (config nam trong thu muc tam)
     w.resize(1180, 1180)  # du cao de thay ca phan cookie va cap nhat
     shot("settings.png")
     w.close()
