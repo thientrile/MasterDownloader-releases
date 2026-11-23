@@ -5,18 +5,44 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # auto-patch.yml goi lai workflow nay de build + phat hanh (tag do GITHUB_TOKEN tao khong kich hoat workflow)
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      # Tag cua Release truoc: build lai dung ma nguon do, ghim goi theo versions.txt cua no
+      base:
+        type: string
+        default: ""
+      # "yt-dlp==A gallery-dl==B": hai goi duy nhat duoc nang
+      pins:
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+env:
+  # Tag can phat hanh: tu auto-patch, hoac tag v* vua push; rong = build thu, khong phat hanh
+  TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+
 jobs:
   windows:
     runs-on: windows-latest
+    outputs:
+      sha: ${{ steps.src.outputs.sha }}
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base }}
+
+      - id: src
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -24,15 +50,28 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        shell: bash
+        env:
+          BASE: ${{ inputs.base }}
+          PINS: ${{ inputs.pins }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -z "$BASE" ]]; then
+            python -m pip install -r requirements.txt
+            exit 0
+          fi
+          [[ "$PINS" =~ ^yt-dlp==[A-Za-z0-9.]+\ gallery-dl==[A-Za-z0-9.]+$ ]] || { echo "::error::pins khong hop le: $PINS"; exit 1; }
+          gh release download "$BASE" --repo "$GITHUB_REPOSITORY" --pattern versions.txt --dir old
+          grep -vE '^(yt-dlp|gallery-dl)==' old/versions.txt > constraints.txt
+          python -m pip install -r requirements.txt -c constraints.txt $PINS
 
       - name: Test
         run: python -m unittest discover -s tests -v
 
       - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.TAG != ''
         shell: bash
-        run: printf '__version__ = "%s"\n' "${GITHUB_REF_NAME#v}" > version.py
+        run: printf '__version__ = "%s"\n' "${TAG#v}" > version.py
 
       # Doc tu moi truong build that (cac goi vua pip install + ban ffmpeg dong goi)
       - name: Third-party licenses
@@ -46,12 +85,25 @@ jobs:
       - name: Build exe
         run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl --add-data "LICENSE;." --add-data "DISCLAIMER.txt;." --add-data "dist/THIRD_PARTY_LICENSES.txt;." App.py
 
+      # Exe da dong goi phai chay duoc gallery-dl/yt-dlp ben trong va dung ban vua cai
+      - name: Smoke test exe
+        shell: bash
+        run: |
+          check() {
+            got=$(dist/MasterDownloader.exe "$1" --version | tr -d '\r')
+            want=$(python -c "import $2.version as v; print(v.__version__)")
+            echo "$1: $got (expected $want)"
+            [[ "$got" == "$want" ]]
+          }
+          check --gallery-dl gallery_dl
+          check --yt-dlp yt_dlp
+
       - name: Build installer
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0-dev' }
+          $v = if ($env:TAG) { $env:TAG.Substring(1) } else { '0.0.0-dev' }
           & $iscc "/DAppVersion=$v" installer.iss
 
       # Cai/go that tren runner: kiem duong dan per-user, unins000.exe (updater dung de nhan ban cai) va giu %APPDATA%
@@ -78,6 +130,10 @@ jobs:
           sha256sum MasterDownloader.exe MasterDownloader-Setup.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      # Moi goi da dong goi: auto-patch so yt-dlp/gallery-dl voi PyPI va ghim cac goi con lai
+      - name: Record library versions
+        run: python tools/dep_check.py --write dist/versions.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: MasterDownloader-windows
@@ -85,6 +141,7 @@ jobs:
             dist/MasterDownloader.exe
             dist/MasterDownloader-Setup.exe
             dist/SHA256SUMS.txt
+            dist/versions.txt
             dist/THIRD_PARTY_LICENSES.txt
             dist/LICENSE.txt
             dist/DISCLAIMER.txt
@@ -92,7 +149,7 @@ jobs:
 
   release:
     needs: windows
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: inputs.tag || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # Chi job nay co quyen ghi; khong cai/chay code ben thu ba o day
     permissions:
@@ -104,14 +161,16 @@ jobs:
           path: dist
 
       - name: Release notes
-        run: sed "s/{{TAG}}/$GITHUB_REF_NAME/g" dist/release-notes.md > notes.md
+        run: sed "s/{{TAG}}/$TAG/g" dist/release-notes.md > notes.md
 
       # Repo nay (MasterDownloader-releases) vua chua ma nguon vua la noi updater doc releases/latest
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Commit da build (auto-patch: commit cua Release truoc, khong phai HEAD main)
+          SHA: ${{ needs.windows.outputs.sha }}
         run: |
           flags=()
-          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes "${flags[@]}"
+          [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+          gh release create "$TAG" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt dist/versions.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$SHA" --title "$TAG" --notes-file notes.md --generate-notes "${flags[@]}"
