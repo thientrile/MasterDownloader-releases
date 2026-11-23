@@ -4,7 +4,7 @@ App desktop (PyQt6) tải video/ảnh từ TikTok, Instagram, Facebook, kèm qu�
 
 ## Tải bản Windows
 
-Vào [Releases](../../releases), tải `MasterDownloader.exe`. Kiểm tra checksum (tuỳ chọn):
+Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases) (repo public chỉ chứa bản phát hành), tải `MasterDownloader.exe`. Kiểm tra checksum (tuỳ chọn):
 
 ```powershell
 Get-FileHash MasterDownloader.exe -Algorithm SHA256   # so với SHA256SUMS.txt

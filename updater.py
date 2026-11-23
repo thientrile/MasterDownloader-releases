@@ -7,7 +7,9 @@ import sys
 
 import requests
 
-LATEST_URL = "https://api.github.com/repos/thientrile/MasterDownloader/releases/latest"
+# Repo public chi chua Release (code nguon private). Doi ten thi sua ca RELEASES_REPO trong .github/workflows/build.yml
+RELEASES_REPO = "thientrile/MasterDownloader-releases"
+LATEST_URL = f"https://api.github.com/repos/{RELEASES_REPO}/releases/latest"
 EXE_NAME = "MasterDownloader.exe"
 SUMS_NAME = "SHA256SUMS.txt"
 

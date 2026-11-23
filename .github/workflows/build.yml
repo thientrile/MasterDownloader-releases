@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Repo public chua Release; phai trung updater.RELEASES_REPO (test_updater kiem)
+  RELEASES_REPO: thientrile/MasterDownloader-releases
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -64,7 +68,24 @@ jobs:
           name: MasterDownloader-windows
           path: dist
 
-      - name: Release
+      # Chay truoc: thieu secret thi fail khi chua phat hanh gi, chay lai job khong vuong release da ton tai
+      - name: Release (public releases repo)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::Secret RELEASES_TOKEN chua duoc dat; khong the tao Release o $RELEASES_REPO"
+            exit 1
+          fi
+          flags=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          # --generate-notes can lich su git cua chinh repo dich (repo releases khong co code), nen dung --notes
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/SHA256SUMS.txt \
+            --repo "$RELEASES_REPO" --title "$GITHUB_REF_NAME" \
+            --notes "MasterDownloader $GITHUB_REF_NAME. Kiem tra SHA256 theo SHA256SUMS.txt." "${flags[@]}"
+
+      # Repo goc: ban v1.0.0/v1.0.1 dang cai van hoi releases/latest o day
+      - name: Release (source repo)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
