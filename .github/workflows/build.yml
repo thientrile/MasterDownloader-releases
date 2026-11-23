@@ -34,14 +34,48 @@ jobs:
         shell: bash
         run: printf '__version__ = "%s"\n' "${GITHUB_REF_NAME#v}" > version.py
 
+      # Doc tu moi truong build that (cac goi vua pip install + ban ffmpeg dong goi)
+      - name: Third-party licenses
+        shell: bash
+        run: |
+          mkdir -p dist
+          python tools/third_party_licenses.py dist/THIRD_PARTY_LICENSES.txt
+          cp LICENSE dist/LICENSE.txt
+          cp DISCLAIMER.txt .github/release-notes.md dist/
+
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl App.py
+        run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl --add-data "LICENSE;." --add-data "DISCLAIMER.txt;." --add-data "dist/THIRD_PARTY_LICENSES.txt;." App.py
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0-dev' }
+          & $iscc "/DAppVersion=$v" installer.iss
+
+      # Cai/go that tren runner: kiem duong dan per-user, unins000.exe (updater dung de nhan ban cai) va giu %APPDATA%
+      - name: Smoke test installer
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\MasterDownloader"
+          Start-Process dist\MasterDownloader-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          foreach ($f in 'MasterDownloader.exe','unins000.exe','LICENSE.txt','DISCLAIMER.txt','THIRD_PARTY_LICENSES.txt') { if (-not (Test-Path "$app\$f")) { throw "install failed: $f missing" } }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MasterDownloader\MasterDownloader.lnk")) { throw "no Start Menu shortcut" }
+          $data = "$env:APPDATA\MasterDownloader"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          Set-Content "$data\keep.txt" "x"
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          # Uninstaller tu chep sang %TEMP% roi chay tiep, nen doi file bien mat
+          for ($i = 0; $i -lt 30 -and (Test-Path "$app\MasterDownloader.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$app\MasterDownloader.exe") { throw "uninstall failed" }
+          if (-not (Test-Path "$data\keep.txt")) { throw "uninstall deleted user data" }
 
       - name: Checksum
         shell: bash
         run: |
           cd dist
-          sha256sum MasterDownloader.exe > SHA256SUMS.txt
+          sha256sum MasterDownloader.exe MasterDownloader-Setup.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
@@ -49,7 +83,12 @@ jobs:
           name: MasterDownloader-windows
           path: |
             dist/MasterDownloader.exe
+            dist/MasterDownloader-Setup.exe
             dist/SHA256SUMS.txt
+            dist/THIRD_PARTY_LICENSES.txt
+            dist/LICENSE.txt
+            dist/DISCLAIMER.txt
+            dist/release-notes.md
 
   release:
     needs: windows
@@ -64,6 +103,9 @@ jobs:
           name: MasterDownloader-windows
           path: dist
 
+      - name: Release notes
+        run: sed "s/{{TAG}}/$GITHUB_REF_NAME/g" dist/release-notes.md > notes.md
+
       # Repo nay (MasterDownloader-releases) vua chua ma nguon vua la noi updater doc releases/latest
       - name: Release
         env:
@@ -71,5 +113,5 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes "${flags[@]}"
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes "${flags[@]}"

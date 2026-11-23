@@ -7,17 +7,22 @@ This is the source code and release repository of MasterDownloader. License: **G
 
 ## Tải bản Windows
 
-Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases), tải `MasterDownloader.exe`. Kiểm tra checksum (tuỳ chọn):
+Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases/latest):
+
+- **`MasterDownloader-Setup.exe`** (khuyên dùng): bộ cài theo người dùng, không cần quyền admin. Cài vào `%LOCALAPPDATA%\Programs\MasterDownloader`, có shortcut Start Menu (tuỳ chọn Desktop) và gỡ cài đặt trong **Settings → Apps**. Gỡ cài đặt không xoá dữ liệu ở `%APPDATA%\MasterDownloader`.
+- `MasterDownloader.exe`: bản portable, chạy trực tiếp không cần cài.
+
+Kiểm tra checksum (tuỳ chọn):
 
 ```powershell
-Get-FileHash MasterDownloader.exe -Algorithm SHA256   # so với SHA256SUMS.txt
+Get-FileHash MasterDownloader-Setup.exe -Algorithm SHA256   # so với SHA256SUMS.txt
 ```
 
 Dữ liệu (lịch sử, session, tài khoản IG đã mã hoá, `secret.key`) nằm ở `%APPDATA%\MasterDownloader`; dữ liệu cũ cạnh file exe được chuyển sang tự động ở lần chạy đầu. `secret.key` được tạo riêng trên từng máy, không có trong repo và không có trong bản release.
 
 ## Tự cập nhật
 
-Bản exe kiểm tra GitHub Release mới khi mở app (tối đa 1 lần/ngày) hoặc khi bấm **Cài đặt → Kiểm tra cập nhật**. App hỏi trước khi cài (Cập nhật ngay / Để sau / Bỏ qua bản này), không cài khi đang có lượt tải, kiểm SHA256 theo `SHA256SUMS.txt`, thay exe rồi tự khởi động lại.
+Bản exe kiểm tra GitHub Release mới khi mở app (tối đa 1 lần/ngày) hoặc khi bấm **Cài đặt → Kiểm tra cập nhật**. App hỏi trước khi cài (Cập nhật ngay / Để sau / Bỏ qua bản này), không cài khi đang có lượt tải, kiểm SHA256 theo `SHA256SUMS.txt` rồi tự khởi động lại. Bản cài đặt tải `MasterDownloader-Setup.exe` mới và cài im lặng; bản portable thay file exe tại chỗ.
 
 ## Điều khoản và miễn trừ trách nhiệm
 

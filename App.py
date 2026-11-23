@@ -1472,7 +1472,8 @@ class MainWindow(QMainWindow):
         self.config["last_update_check"] = time.time()
         self.save_config()
         self.btn_check_update.setEnabled(False)
-        worker = DownloadWorker(lambda progress_callback: updater.check_latest(__version__), -1)
+        asset = updater.SETUP_NAME if updater.is_installed(sys.executable) else updater.EXE_NAME
+        worker = DownloadWorker(lambda progress_callback: updater.check_latest(__version__, asset), -1)
         worker.signals.result.connect(lambda res: self._on_update_checked(res, manual))
         worker.signals.error.connect(lambda err: self._on_update_error(err, manual))
         worker.signals.finished.connect(lambda: self.btn_check_update.setEnabled(True))
@@ -1514,15 +1515,32 @@ class MainWindow(QMainWindow):
         self.log(f"Đang tải bản cập nhật {tag}...", "INFO")
         self.btn_check_update.setEnabled(False)
 
-        def work(progress_callback):
-            updater.download_verified(exe_url, sums_url, new_exe)
-            return updater.swap_exe(new_exe, exe)
+        if updater.is_installed(exe):
+            # Ban cai dat: exe_url la Setup moi; Setup thay file roi tu mo lai app
+            worker = DownloadWorker(lambda progress_callback: updater.download_setup(exe_url, sums_url), -1)
+            worker.signals.result.connect(lambda setup: self._on_setup_ready(tag, setup))
+        else:
+            def work(progress_callback):
+                updater.download_verified(exe_url, sums_url, new_exe)
+                return updater.swap_exe(new_exe, exe)
 
-        worker = DownloadWorker(work, -1)
-        worker.signals.result.connect(lambda old: self._on_update_installed(tag, exe, old))
+            worker = DownloadWorker(work, -1)
+            worker.signals.result.connect(lambda old: self._on_update_installed(tag, exe, old))
         worker.signals.error.connect(lambda err: self._on_update_error(err, True))
         worker.signals.finished.connect(lambda: self.btn_check_update.setEnabled(True))
         QThreadPool.globalInstance().start(worker)
+
+    def _on_setup_ready(self, tag, setup):
+        if self.threadpool.activeThreadCount() > 0:
+            QMessageBox.information(self, "Cập nhật", f"Đã tải {tag} nhưng đang có lượt tải chạy.\nHãy cập nhật lại sau khi tải xong.")
+            return
+        try:
+            updater.run_setup(setup)
+        except OSError as e:
+            QMessageBox.warning(self, "Cập nhật", f"Không chạy được bộ cài:\n{e}")
+            return
+        self.log(f"Đang cài {tag}, app sẽ tự mở lại...", "SUCCESS")
+        QApplication.quit()
 
     def _on_update_installed(self, tag, exe, old):
         if self.threadpool.activeThreadCount() > 0:
