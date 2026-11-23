@@ -1,0 +1,30 @@
+﻿MASTERDOWNLOADER — LƯU Ý PHÁP LÝ / LEGAL NOTICE
+
+Bản quyền (c) thientrile.
+Copyright (c) thientrile.
+
+TIẾNG VIỆT
+
+1. Giấy phép. MasterDownloader là phần mềm tự do, miễn phí, phát hành theo Giấy phép Công cộng GNU phiên bản 3 (GPL-3.0); toàn văn trong file LICENSE. Mã nguồn: https://github.com/thientrile/MasterDownloader-releases. Các thành phần bên thứ ba đi kèm tuân theo giấy phép riêng của chúng (xem THIRD_PARTY_LICENSES.txt). Lưu ý này không thêm hạn chế nào ngoài GPL-3.0.
+
+2. Mục đích và trách nhiệm của người dùng. Phần mềm là công cụ tải nội dung cho mục đích cá nhân. Chỉ tải nội dung mà bạn có quyền tải: nội dung của chính bạn, nội dung được chủ sở hữu cho phép, hoặc nội dung mà pháp luật cho phép. Bạn tự chịu trách nhiệm tuân thủ luật bản quyền, quyền riêng tư và Điều khoản dịch vụ của từng nền tảng. Tác giả không khuyến khích và không chịu trách nhiệm về việc sử dụng trái phép.
+
+3. Không liên kết. Phần mềm không liên kết, không được bảo trợ hay chứng nhận bởi TikTok, ByteDance, Meta (Facebook, Instagram), Google (YouTube) hay bất kỳ nền tảng nào khác. Mọi tên và nhãn hiệu thuộc về chủ sở hữu tương ứng và chỉ được nhắc đến để mô tả.
+
+4. Không bảo hành. Phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS), không có bất kỳ bảo đảm nào, rõ ràng hay ngụ ý (GPL-3.0, mục 15).
+
+5. Giới hạn trách nhiệm. Trong phạm vi tối đa pháp luật cho phép, tác giả không chịu trách nhiệm về bất kỳ thiệt hại nào (bao gồm mất dữ liệu, khoá tài khoản, khiếu nại của bên thứ ba) phát sinh từ việc sử dụng hoặc không thể sử dụng phần mềm (GPL-3.0, mục 16).
+
+6. Dữ liệu. Phần mềm không thu thập dữ liệu người dùng. Tài khoản, cookie, lịch sử và cài đặt chỉ lưu trên máy của bạn (%APPDATA%\MasterDownloader; tài khoản Instagram được mã hoá). Phần mềm chỉ kết nối tới nền tảng bạn yêu cầu tải và tới GitHub để kiểm tra bản cập nhật.
+
+7. Liên hệ, gỡ nội dung, khiếu nại: mở Issue tại https://github.com/thientrile/MasterDownloader-releases/issues
+
+ENGLISH (SUMMARY)
+
+1. License. MasterDownloader is free software under the GNU General Public License v3 (GPL-3.0); full text in LICENSE. Source code: https://github.com/thientrile/MasterDownloader-releases. Bundled third-party components are under their own licenses (THIRD_PARTY_LICENSES.txt). This notice adds no restrictions beyond GPL-3.0.
+2. Your responsibility. Download only content you have the right to download (your own, permitted by the owner, or allowed by law). You are responsible for complying with copyright law, privacy law and each platform's Terms of Service.
+3. No affiliation. Not affiliated with, endorsed or certified by TikTok, ByteDance, Meta (Facebook, Instagram), Google (YouTube) or any other platform. All names and trademarks belong to their owners.
+4. No warranty. Provided "AS IS", without warranty of any kind (GPL-3.0 section 15).
+5. Limitation of liability. To the maximum extent permitted by law, the author is not liable for any damages arising from the use of, or inability to use, the software (GPL-3.0 section 16).
+6. Data. No data collection. Accounts, cookies, history and settings stay on your computer (%APPDATA%\MasterDownloader). The app only connects to the platforms you download from and to GitHub to check for updates.
+7. Contact, takedown, complaints: open an issue at https://github.com/thientrile/MasterDownloader-releases/issues
