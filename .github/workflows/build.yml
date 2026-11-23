@@ -41,11 +41,36 @@ jobs:
       - name: Build exe
         run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl App.py
 
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0-dev' }
+          & $iscc "/DAppVersion=$v" installer.iss
+
+      # Cai/go that tren runner: kiem duong dan per-user, unins000.exe (updater dung de nhan ban cai) va giu %APPDATA%
+      - name: Smoke test installer
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\MasterDownloader"
+          Start-Process dist\MasterDownloader-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          if (-not (Test-Path "$app\MasterDownloader.exe") -or -not (Test-Path "$app\unins000.exe")) { throw "install failed" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MasterDownloader\MasterDownloader.lnk")) { throw "no Start Menu shortcut" }
+          $data = "$env:APPDATA\MasterDownloader"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          Set-Content "$data\keep.txt" "x"
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          # Uninstaller tu chep sang %TEMP% roi chay tiep, nen doi file bien mat
+          for ($i = 0; $i -lt 30 -and (Test-Path "$app\MasterDownloader.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$app\MasterDownloader.exe") { throw "uninstall failed" }
+          if (-not (Test-Path "$data\keep.txt")) { throw "uninstall deleted user data" }
+
       - name: Checksum
         shell: bash
         run: |
           cd dist
-          sha256sum MasterDownloader.exe > SHA256SUMS.txt
+          sha256sum MasterDownloader.exe MasterDownloader-Setup.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
@@ -53,6 +78,7 @@ jobs:
           name: MasterDownloader-windows
           path: |
             dist/MasterDownloader.exe
+            dist/MasterDownloader-Setup.exe
             dist/SHA256SUMS.txt
 
   release:
@@ -80,7 +106,7 @@ jobs:
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
           # --generate-notes can lich su git cua chinh repo dich (repo releases khong co code), nen dung --notes
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt \
             --repo "$RELEASES_REPO" --title "$GITHUB_REF_NAME" \
             --notes "MasterDownloader $GITHUB_REF_NAME. Kiem tra SHA256 theo SHA256SUMS.txt." "${flags[@]}"
 
@@ -91,5 +117,5 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes "${flags[@]}"

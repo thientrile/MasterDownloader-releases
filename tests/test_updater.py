@@ -33,6 +33,7 @@ RELEASE = {
     "tag_name": "v1.2.0",
     "assets": [
         {"name": "MasterDownloader.exe", "browser_download_url": "https://x/exe"},
+        {"name": "MasterDownloader-Setup.exe", "browser_download_url": "https://x/setup.exe"},
         {"name": "SHA256SUMS.txt", "browser_download_url": "https://x/sums"},
     ],
 }
@@ -58,6 +59,11 @@ class VersionTest(unittest.TestCase):
     def test_check_latest_newer(self):
         with mock.patch("updater.requests.get", return_value=FakeResp(json_data=RELEASE)):
             self.assertEqual(updater.check_latest("1.1.0"), ("v1.2.0", "https://x/exe", "https://x/sums"))
+
+    def test_check_latest_installed_picks_setup(self):
+        with mock.patch("updater.requests.get", return_value=FakeResp(json_data=RELEASE)):
+            self.assertEqual(updater.check_latest("1.1.0", asset=updater.SETUP_NAME),
+                             ("v1.2.0", "https://x/setup.exe", "https://x/sums"))
 
     def test_check_latest_same_or_older(self):
         with mock.patch("updater.requests.get", return_value=FakeResp(json_data=RELEASE)):
@@ -90,6 +96,37 @@ class DownloadTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 updater.download_verified("https://x/exe", "https://x/sums", dest)
             self.assertFalse(os.path.exists(dest))
+
+
+    def test_setup_checksum_uses_setup_line(self):
+        setup, exe = b"setup-bytes", b"exe-bytes"
+        sums = (f"{hashlib.sha256(exe).hexdigest()}  MasterDownloader.exe\n"
+                f"{hashlib.sha256(setup).hexdigest()}  MasterDownloader-Setup.exe\n").encode()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("updater.requests.get", self._get(setup, sums)), \
+                mock.patch("updater.tempfile.gettempdir", return_value=tmp):
+            dest = updater.download_setup("https://x/setup.exe", "https://x/sums")
+            self.assertEqual(dest, os.path.join(tmp, updater.SETUP_NAME))
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), setup)
+
+
+class InstalledTest(unittest.TestCase):
+    def test_portable_vs_installed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = os.path.join(tmp, "MasterDownloader.exe")
+            self.assertFalse(updater.is_installed(exe))
+            open(os.path.join(tmp, "unins000.exe"), "wb").close()
+            self.assertTrue(updater.is_installed(exe))
+
+    def test_run_setup_silent_relaunch(self):
+        with mock.patch("updater.subprocess.Popen") as popen:
+            updater.run_setup(r"C:\\tmp\\MasterDownloader-Setup.exe")
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0][1:], ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/relaunch=1"])
+        self.assertEqual(kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "installer.iss"), encoding="utf-8") as f:
+            self.assertIn("{param:relaunch|0}", f.read())  # Setup doc dung tham so nay
 
 
 class SwapTest(unittest.TestCase):
