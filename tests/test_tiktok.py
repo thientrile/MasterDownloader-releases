@@ -286,6 +286,37 @@ class ProfileFlowTest(unittest.TestCase):
         self.assertEqual(len(self.gdl_calls), 3)
         self.assertEqual(self.gdl_calls[2][-1], post)
 
+    # Dong log that tu owner (v1.0.2, Windows, 2026-11-24): gallery-dl lay danh sach qua yt-dlp
+    PARSE_JSON = ("[tiktok][error] An unexpected error occurred: DownloadError - ERROR: nabisayhiii: "
+                  "Failed to parse JSON (caused by JSONDecodeError(\"Expecting value in '': line 1 column 1 (char 0)\"))")
+
+    def test_post_list_does_not_go_through_ytdlp(self):
+        # extractor.ytdl.raw-options (ffmpeg) bat che do ytdl cua tiktok neu khong tat rieng
+        self._download([(0, ["ok"]), (0, ["ok"])])
+        for cmd in self.gdl_calls:
+            self.assertIn("extractor.tiktok.ytdl=false", cmd)
+
+    def test_empty_json_is_friendly_and_keeps_videos(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._download([(1, [self.PARSE_JSON]), (0, ["ok"])])
+        msg = str(ctx.exception)
+        self.assertTrue(msg.startswith("Video đã tải; "))
+        self.assertIn("TikTok tạm chặn", msg)
+        self.assertNotIn("JSONDecodeError", msg)
+        self.assertEqual(len(self.ydl_calls), 1)
+        self.assertEqual(self.gdl_calls[1][-1], "https://www.tiktok.com/@linhpntt/stories")
+
+    def test_bad_saved_cookie_retries_without_cookie(self):
+        self.dl.get_manual_cookie = lambda platform: "sessionid=expired"
+        self.dl.data_dir = self.tmp.name
+        self._download([(1, [self.PARSE_JSON]), (0, ["ok"]), (0, ["ok"])])
+        with_cookie, without_cookie, stories = self.gdl_calls
+        self.assertIn("--cookies", with_cookie)
+        self.assertNotIn("--cookies", without_cookie)
+        self.assertEqual(without_cookie[-1], self.POSTS)
+        self.assertIn("--cookies", stories)
+        self.assertEqual(self.progress[-1][0], "100%")
+
 
 if __name__ == "__main__":
     unittest.main()
