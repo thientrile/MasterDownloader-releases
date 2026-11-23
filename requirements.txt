@@ -1,0 +1,12 @@
+yt-dlp
+instaloader
+browser-cookie3
+colorama
+pyinstaller
+Pillow
+imagehash
+PyQt6
+cryptography
+requests
+imageio-ffmpeg
+gallery-dl
