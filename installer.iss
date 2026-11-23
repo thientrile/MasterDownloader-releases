@@ -15,6 +15,8 @@ PrivilegesRequired=lowest
 DefaultDirName={userpf}\MasterDownloader
 DefaultGroupName=MasterDownloader
 DisableProgramGroupPage=yes
+; Nguoi dung phai dong y dieu khoan khi cai (ban im lang tu dong y)
+LicenseFile=TERMS.txt
 UninstallDisplayIcon={app}\MasterDownloader.exe
 OutputDir=dist
 OutputBaseFilename=MasterDownloader-Setup
@@ -33,6 +35,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "dist\MasterDownloader.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "TERMS.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\MasterDownloader"; Filename: "{app}\MasterDownloader.exe"

@@ -9,8 +9,6 @@ Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases
 - **`MasterDownloader-Setup.exe`** (khuyên dùng): bộ cài theo người dùng, không cần quyền admin. Cài vào `%LOCALAPPDATA%\Programs\MasterDownloader`, có shortcut Start Menu (tuỳ chọn Desktop) và gỡ cài đặt trong **Settings → Apps**. Gỡ cài đặt không xoá dữ liệu ở `%APPDATA%\MasterDownloader`.
 - `MasterDownloader.exe`: bản portable, chạy trực tiếp không cần cài.
 
-File exe chưa ký số nên lần đầu chạy Windows SmartScreen sẽ cảnh báo: bấm **More info → Run anyway**.
-
 Kiểm tra checksum (tuỳ chọn):
 
 ```powershell
@@ -22,6 +20,18 @@ Dữ liệu (lịch sử, session, tài khoản IG đã mã hoá, `secret.key`) 
 ## Tự cập nhật
 
 Bản exe kiểm tra GitHub Release mới khi mở app (tối đa 1 lần/ngày) hoặc khi bấm **Cài đặt → Kiểm tra cập nhật**. App hỏi trước khi cài (Cập nhật ngay / Để sau / Bỏ qua bản này), không cài khi đang có lượt tải, kiểm SHA256 theo `SHA256SUMS.txt` rồi tự khởi động lại. Bản cài đặt tải `MasterDownloader-Setup.exe` mới và cài im lặng; bản portable thay file exe tại chỗ.
+
+## Điều khoản và miễn trừ trách nhiệm
+
+- **Mục đích:** công cụ tải nội dung cho mục đích cá nhân. Chỉ tải nội dung bạn có quyền tải (của chính bạn, được chủ sở hữu cho phép, hoặc pháp luật cho phép). Bạn tự chịu trách nhiệm tuân thủ luật bản quyền và Điều khoản dịch vụ của từng nền tảng.
+- **Không liên kết:** không liên kết, không được bảo trợ bởi TikTok, ByteDance, Meta (Facebook, Instagram), Google (YouTube) hay nền tảng nào khác. Tên và nhãn hiệu thuộc về chủ sở hữu tương ứng.
+- **Không bảo hành:** phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS), không có bất kỳ bảo đảm nào. Tác giả không chịu trách nhiệm về thiệt hại phát sinh từ việc sử dụng phần mềm, trong phạm vi tối đa pháp luật cho phép.
+- **Dữ liệu:** không thu thập dữ liệu. Tài khoản và cookie chỉ lưu trên máy bạn (`%APPDATA%\MasterDownloader`). App chỉ kết nối tới nền tảng bạn tải và tới GitHub để kiểm tra cập nhật.
+- **Chưa ký số:** Windows SmartScreen sẽ cảnh báo ở lần chạy đầu (bấm **More info → Run anyway**). Kiểm tính toàn vẹn bằng `Get-FileHash <file> -Algorithm SHA256` rồi so với `SHA256SUMS.txt`.
+- **Giấy phép:** phần mềm miễn phí, mã đóng, mọi quyền được bảo lưu (xem `TERMS.txt`). Thành phần bên thứ ba theo giấy phép riêng của chúng: `THIRD_PARTY_LICENSES.txt`.
+- **Liên hệ, gỡ nội dung, khiếu nại:** mở [Issue ở repo releases](https://github.com/thientrile/MasterDownloader-releases/issues).
+
+**English:** Personal-use download tool. Download only content you have the right to; you are responsible for complying with copyright law and each platform's Terms of Service. Not affiliated with or endorsed by TikTok, ByteDance, Meta, Google/YouTube or any other platform; trademarks belong to their owners. Provided "AS IS" without warranty; no liability to the extent permitted by law. No data collection: credentials and cookies stay on your computer. Unsigned executable: expect a SmartScreen warning; verify with `SHA256SUMS.txt`. Freeware, all rights reserved (`TERMS.txt`); third-party licenses in `THIRD_PARTY_LICENSES.txt`. Contact/takedown: open an issue in the releases repo.
 
 ## Chạy từ source
 
