@@ -286,6 +286,63 @@ class ProfileFlowTest(unittest.TestCase):
         self.assertEqual(len(self.gdl_calls), 3)
         self.assertEqual(self.gdl_calls[2][-1], post)
 
+    # Dong log that tu owner (v1.0.2, Windows, 2026-11-24): gallery-dl lay danh sach qua yt-dlp
+    PARSE_JSON = ("[tiktok][error] An unexpected error occurred: DownloadError - ERROR: nabisayhiii: "
+                  "Failed to parse JSON (caused by JSONDecodeError(\"Expecting value in '': line 1 column 1 (char 0)\"))")
+
+    def test_post_list_does_not_go_through_ytdlp(self):
+        # extractor.ytdl.raw-options (ffmpeg) bat che do ytdl cua tiktok neu khong tat rieng
+        self._download([(0, ["ok"]), (0, ["ok"])])
+        for cmd in self.gdl_calls:
+            self.assertIn("extractor.tiktok.ytdl=false", cmd)
+
+    def test_empty_json_is_friendly_and_keeps_videos(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._download([(1, [self.PARSE_JSON]), (0, ["ok"])])
+        msg = str(ctx.exception)
+        self.assertTrue(msg.startswith("Video đã tải; "))
+        self.assertIn("TikTok tạm chặn", msg)
+        self.assertNotIn("JSONDecodeError", msg)
+        self.assertEqual(len(self.ydl_calls), 1)
+        self.assertEqual(self.gdl_calls[1][-1], "https://www.tiktok.com/@linhpntt/stories")
+
+    def test_bad_saved_cookie_retries_without_cookie(self):
+        self.dl.get_manual_cookie = lambda platform: "sessionid=expired"
+        self.dl.data_dir = self.tmp.name
+        self._download([(1, [self.PARSE_JSON]), (0, ["ok"]), (0, ["ok"])])
+        with_cookie, without_cookie, stories = self.gdl_calls
+        self.assertIn("--cookies", with_cookie)
+        self.assertNotIn("--cookies", without_cookie)
+        self.assertEqual(without_cookie[-1], self.POSTS)
+        self.assertIn("--cookies", stories)
+        self.assertEqual(self.progress[-1][0], "100%")
+
+    def _with_cookie(self):
+        self.dl.get_manual_cookie = lambda platform: "sessionid=expired"
+        self.dl.data_dir = self.tmp.name
+
+    def test_cookie_run_with_ordinary_error_is_not_retried(self):
+        # 1 anh loi mang -> exit 4, khong phai dau hieu cookie hong: khong chay lai ca danh sach
+        self._with_cookie()
+        with self.assertRaisesRegex(RuntimeError, "Failed to download 1_02"):
+            self._download([(4, ["[download][error] Failed to download 1_02 x.jpg"]), (0, ["ok"])])
+        self.assertEqual(len(self.gdl_calls), 2)
+        self.assertEqual(self.gdl_calls[1][-1], "https://www.tiktok.com/@linhpntt/stories")
+
+    def test_failed_no_cookie_retry_keeps_cookie_run_message(self):
+        self._with_cookie()
+        login = "[tiktok][error] HttpError: login required"
+        with self.assertRaisesRegex(RuntimeError, "TikTok tạm chặn") as ctx:
+            self._download([(1, [self.PARSE_JSON]), (1, [login]), (0, ["ok"])])
+        self.assertNotIn("đăng nhập", str(ctx.exception))
+        self.assertEqual(len(self.gdl_calls), 3)
+
+    def test_other_unexpected_error_is_shown_as_is(self):
+        disk = "[tiktok][error] An unexpected error occurred: OSError - [Errno 28] No space left on device"
+        with self.assertRaisesRegex(RuntimeError, "No space left on device") as ctx:
+            self._download([(1, [disk]), (0, ["ok"])])
+        self.assertNotIn("TikTok tạm chặn", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

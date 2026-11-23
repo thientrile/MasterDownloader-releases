@@ -1177,6 +1177,37 @@ class MasterDownloader:
                 errors.append(f"[mp3][error] Không đổi được sang MP3 ({reason}), giữ lại video: {path}")
         return errors
 
+    def _run_tiktok_gallerydl(self, cmd, url, progress_callback=None):
+        """Chay gallery-dl cho TikTok, chay lai 1 lan cac bai bi 403. Tra ve (code, lines, retry_urls)."""
+        code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
+
+        # Sau khi goi API danh sach story, TikTok tra 403 cho trang tung bai trong cung phien;
+        # chay lai cac link do trong tien trinh moi thi tai duoc.
+        retry_urls, other_errors = [], []
+        for line in lines:
+            # URL bai viet o dau dong; URL sau "for '...'" la response.url (co the da redirect)
+            m = re.search(r"(https?://\S+): Failed to extract post \(HttpError: '403", line)
+            if m:
+                if m.group(1) not in retry_urls:
+                    retry_urls.append(m.group(1))
+            elif "][error]" in line:
+                other_errors.append(line)
+        if retry_urls:
+            print(f"{Fore.YELLOW}⚠️  TikTok tra 403 cho {len(retry_urls)} bai, dang thu lai...")
+            code, lines = self._run_gallerydl(cmd + retry_urls, progress_callback)
+            if other_errors:
+                # Loi ngoai nhom 403 khong duoc chay lai: van tinh la that bai
+                code, lines = code or 1, lines + other_errors
+        return code, lines, retry_urls
+
+    @staticmethod
+    def _tiktok_gallerydl_failed(lines):
+        """Dau hieu cookie hong/danh sach rong. Khong xet exit code: 403 le, loi mang 1 file,
+        ffmpeg loi o MP3 cung thoat khac 0 nhung chay lai ca danh sach khong giup gi."""
+        output = "\n".join(lines).lower()
+        return "failed to parse json" in output or "could not extract any posts for this user" in output or any(
+            "][error]" in l and "failed to retrieve" in l.lower() for l in lines)
+
     def download_tiktok_gallerydl(self, url, kind, output_folder=None, progress_callback=None):
         """TikTok bai anh (/photo/), story le va story cua trang ca nhan, qua gallery-dl."""
         username = self._extract_tiktok_account_from_url(url) or "tiktok"
@@ -1203,39 +1234,30 @@ class MasterDownloader:
             "--sleep-request", "2-5",
             "--retries", "3",
             "--http-timeout", "45",
+            # extractor.ytdl.* (ffmpeg) lam gallery-dl lay danh sach bai qua yt-dlp; TikTok tra
+            # trang rong la loi "Failed to parse JSON" khong bat duoc. Dung API rieng cua gallery-dl.
+            "-o", "extractor.tiktok.ytdl=false",
         ]
         if kind == "photos":
             # Danh sach bai cua trang ca nhan: chi lay bai anh (video da tai bang yt-dlp)
             cmd += ["-o", "extractor.tiktok.videos=false"]
         if kind in ("story", "stories"):
             cmd += ["-o", "extractor.tiktok.filename=STORY - {id}{num:?_//>02} {title[b:150]}{file_id:? [/]/}.{extension}"]
-        if cookie_file:
-            cmd += ["--cookies", cookie_file]
 
         label = {"photo": "bài ảnh", "photos": "bài ảnh của trang cá nhân", "story": "story", "stories": "story của trang cá nhân"}.get(kind, kind)
         print(f"{Fore.CYAN}🚀 TikTok {label} cua {username} (gallery-dl)")
         if progress_callback:
             progress_callback("0%", f"Đang tải TikTok {label}...")
 
-        code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
-
-        # Sau khi goi API danh sach story, TikTok tra 403 cho trang tung bai trong cung phien;
-        # chay lai cac link do trong tien trinh moi thi tai duoc.
-        retry_urls, other_errors = [], []
-        for line in lines:
-            # URL bai viet o dau dong; URL sau "for '...'" la response.url (co the da redirect)
-            m = re.search(r"(https?://\S+): Failed to extract post \(HttpError: '403", line)
-            if m:
-                if m.group(1) not in retry_urls:
-                    retry_urls.append(m.group(1))
-            elif "][error]" in line:
-                other_errors.append(line)
-        if retry_urls:
-            print(f"{Fore.YELLOW}⚠️  TikTok tra 403 cho {len(retry_urls)} bai, dang thu lai...")
-            code, lines = self._run_gallerydl(cmd + retry_urls, progress_callback)
-            if other_errors:
-                # Loi ngoai nhom 403 khong duoc chay lai: van tinh la that bai
-                code, lines = code or 1, lines + other_errors
+        code, lines, retry_urls = self._run_tiktok_gallerydl(
+            cmd + (["--cookies", cookie_file] if cookie_file else []), url, progress_callback)
+        if cookie_file and self._tiktok_gallerydl_failed(lines):
+            # Cookie da luu co the het han/hong: TikTok tra rong. Thu lai khong cookie.
+            print(f"{Fore.YELLOW}⚠️  TikTok loi khi dung cookie da luu, thu lai khong cookie...")
+            retry = self._run_tiktok_gallerydl(cmd, url, progress_callback)
+            if retry[0] == 0 and not self._tiktok_gallerydl_failed(retry[1]):
+                code, lines, retry_urls = retry
+            # Khong cookie cung loi: giu ket qua (va thong bao) cua lan co cookie
 
         output = "\n".join(lines).lower()
         # Chi tinh dong ][error]: ][warning] "failed to retrieve" la lan thu lai, co the da thanh cong
@@ -1263,6 +1285,10 @@ class MasterDownloader:
             status = "Error"
         elif code == 0 and "no results for" in output:
             msg = "Không tìm thấy nội dung ở link này (bài có thể đã bị xoá hoặc ở chế độ riêng tư)."
+            status = "Error"
+        elif "failed to parse json" in output or ("an unexpected error occurred" in output and "downloaderror" in output):
+            # TikTok tra trang rong (tam chan) - vd. "DownloadError - ERROR: x: Failed to parse JSON"
+            msg = "TikTok tạm chặn hoặc trả dữ liệu rỗng. Hãy đợi vài phút rồi tải lại; nếu vẫn lỗi, cập nhật lại TikTok Cookie."
             status = "Error"
         elif "login" in output or "authorization" in output or "private" in output:
             msg = "TikTok yêu cầu đăng nhập. Hãy lưu TikTok Cookie của tài khoản xem được nội dung này."
