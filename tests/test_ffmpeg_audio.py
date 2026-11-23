@@ -1,9 +1,11 @@
+import functools
+import http.server
 import os
-import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -174,22 +176,32 @@ class AudioOnlyTest(unittest.TestCase):
         self.assertEqual(len(self._run_job(True, False)[2]), 1)  # luot MP3 van doi sang mp3
 
 
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
 class ExistingVideoTest(unittest.TestCase):
-    """Chay that yt-dlp + ffmpeg tren file:// (khong can mang)."""
+    """Chay that yt-dlp + ffmpeg qua HTTP cuc bo (khong can mang)."""
 
     def setUp(self):
         import imageio_ffmpeg
         self.ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.src = os.path.join(self.tmp.name, "src", "clip.mp4")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)  # addCleanup chay nguoc: server tat truoc khi xoa thu muc
+        self.src = os.path.join(tmp.name, "src", "clip.mp4")
         os.makedirs(os.path.dirname(self.src))
         subprocess.run([self.ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1",
                         "-f", "lavfi", "-i", "color=size=64x64:duration=1", "-shortest", self.src], check=True)
-        self.out = os.path.join(self.tmp.name, "out")
+        self.out = os.path.join(tmp.name, "out")
         os.makedirs(self.out)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        # HTTP cuc bo thay file:// (handler file:// cua yt-dlp de mo file, Windows khong xoa duoc)
+        handler = functools.partial(QuietHandler, directory=os.path.dirname(self.src))
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}/clip.mp4"
 
     def test_mp3_run_keeps_video_user_already_has(self):
         # Video cung ten tai truoc do o che do video: yt-dlp coi la "already downloaded"
@@ -200,10 +212,10 @@ class ExistingVideoTest(unittest.TestCase):
         dl = object.__new__(MasterDownloader)
         dl._rate_limit_ydl_opts = lambda: {}
         dl.audio_only = True
-        opts = {"quiet": True, "enable_file_urls": True, "outtmpl": os.path.join(self.out, "%(title)s.%(ext)s"),
+        opts = {"quiet": True, "outtmpl": os.path.join(self.out, "%(title)s.%(ext)s"),
                 "download_archive": os.path.join(self.out, "a.txt")}
         with dl._prepare_yt_dlp(opts, "test") as ydl:
-            ydl.download([pathlib.Path(self.src).as_uri()])
+            ydl.download([self.url])
         self.assertTrue(os.path.exists(mine), "lượt MP3 đã xoá video có sẵn")
         with open(mine, "rb") as f:
             self.assertEqual(f.read(), before)

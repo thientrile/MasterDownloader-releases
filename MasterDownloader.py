@@ -1137,6 +1137,7 @@ class MasterDownloader:
             print(line)
             if progress_callback:
                 progress_callback("Running", line[-160:])
+        process.stdout.close()
         code = process.wait()
         # Theo che do luc dung lenh, khong theo cai dat hien tai: nguoi dung co the bat/tat giua luot tai
         if any(arg.startswith("extension in (") for arg in cmd):
