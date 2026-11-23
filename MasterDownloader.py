@@ -596,6 +596,12 @@ class MasterDownloader:
             opts['writethumbnails'] = False
             opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
             opts['download_archive'] = self._audio_archive(opts.get('download_archive'))
+            # FFmpegExtractAudio xoa video sau khi tach; video cung ten nguoi dung da tai truoc do
+            # se bi coi la "already downloaded" roi bi xoa. Tai vao thu muc tam, chi dua mp3 ra.
+            if isinstance(opts.get('outtmpl'), str):
+                folder, name = os.path.split(opts['outtmpl'])
+                opts['outtmpl'] = os.path.join(folder, '.mp3_tmp', name)
+                opts['post_hooks'] = [lambda path: self._move_out_of_mp3_tmp(path, folder)]
 
         # Tro yt-dlp den ffmpeg (uu tien PATH, fallback imageio-ffmpeg) de merge format/convert
         if not opts.get('ffmpeg_location'):
@@ -627,6 +633,14 @@ class MasterDownloader:
                 opts.pop('download_archive', None)
                 return yt_dlp.YoutubeDL(opts)
             raise
+
+    @staticmethod
+    def _move_out_of_mp3_tmp(path, folder):
+        os.replace(path, os.path.join(folder, os.path.basename(path)))
+        try:
+            os.rmdir(os.path.dirname(path))
+        except OSError:
+            pass  # con file cua luot khac dang tai
 
     def _audio_archive(self, path):
         # Ban MP3 va ban video la 2 file khac nhau: archive rieng de bat/tat che do khong chan nhau
@@ -1135,10 +1149,14 @@ class MasterDownloader:
         ffmpeg = self._get_ffmpeg_exe()
         errors = []
         for line in lines:
-            path = line.strip()
+            line = line.strip()
+            # "# path": video da co tu truoc (vd. tai o che do video) -> tach mp3 nhung giu video
+            existing = line.startswith("# ")
+            path = line[2:] if existing else line
             root, ext = os.path.splitext(path)
-            # File da co tu truoc gallery-dl in dang "# path" nen khong khop isfile
             if ext.lower() not in self._video_extensions() or not os.path.isfile(path):
+                continue
+            if existing and os.path.exists(root + ".mp3"):
                 continue
             result = None
             if ffmpeg:
@@ -1148,7 +1166,8 @@ class MasterDownloader:
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             if result is not None and result.returncode == 0:
-                os.remove(path)
+                if not existing:
+                    os.remove(path)
                 print(f"{Fore.GREEN}🎵 {root}.mp3")
             else:
                 # Giu lai video de khong mat du lieu

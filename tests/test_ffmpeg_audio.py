@@ -1,4 +1,7 @@
 import os
+import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -128,17 +131,26 @@ class AudioOnlyTest(unittest.TestCase):
 
     def test_new_video_converted_then_removed(self):
         run, video, old, errors = self._convert(0)
-        run.assert_called_once()
-        args = run.call_args[0][0]
+        args = run.call_args_list[0][0][0]
         self.assertEqual((args[0], args[args.index("-i") + 1], args[-1]), (FFMPEG, video, video[:-4] + ".mp3"))
         self.assertEqual(errors, [])
         self.assertFalse(os.path.exists(video))
+
+    def test_existing_video_converted_but_kept(self):
+        # "# path": video nguoi dung da co tu truoc, chi tach mp3
+        run, video, old, errors = self._convert(0)
+        self.assertEqual([c[0][0][-1] for c in run.call_args_list], [video[:-4] + ".mp3", old[:-4] + ".mp3"])
         self.assertTrue(os.path.exists(old))
+
+    def test_existing_video_with_mp3_is_skipped(self):
+        open(os.path.join(self.tmp.name, "old.mp3"), "wb").close()
+        run, video, old, errors = self._convert(0)
+        run.assert_called_once()
 
     def test_failed_conversion_keeps_video_and_reports(self):
         run, video, old, errors = self._convert(1)
         self.assertTrue(os.path.exists(video))
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(len(errors), 2)
         self.assertIn("boom", errors[0])
 
     def test_run_gallerydl_fails_when_conversion_fails(self):
@@ -152,3 +164,40 @@ class AudioOnlyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExistingVideoTest(unittest.TestCase):
+    """Chay that yt-dlp + ffmpeg tren file:// (khong can mang)."""
+
+    def setUp(self):
+        import imageio_ffmpeg
+        self.ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = os.path.join(self.tmp.name, "src", "clip.mp4")
+        os.makedirs(os.path.dirname(self.src))
+        subprocess.run([self.ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1",
+                        "-f", "lavfi", "-i", "color=size=64x64:duration=1", "-shortest", self.src], check=True)
+        self.out = os.path.join(self.tmp.name, "out")
+        os.makedirs(self.out)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_mp3_run_keeps_video_user_already_has(self):
+        # Video cung ten tai truoc do o che do video: yt-dlp coi la "already downloaded"
+        mine = os.path.join(self.out, "clip.mp4")
+        shutil.copy(self.src, mine)
+        with open(mine, "rb") as f:
+            before = f.read()
+        dl = object.__new__(MasterDownloader)
+        dl._rate_limit_ydl_opts = lambda: {}
+        dl.audio_only = True
+        opts = {"quiet": True, "enable_file_urls": True, "outtmpl": os.path.join(self.out, "%(title)s.%(ext)s"),
+                "download_archive": os.path.join(self.out, "a.txt")}
+        with dl._prepare_yt_dlp(opts, "test") as ydl:
+            ydl.download([pathlib.Path(self.src).as_uri()])
+        self.assertTrue(os.path.exists(mine), "lượt MP3 đã xoá video có sẵn")
+        with open(mine, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertTrue(os.path.getsize(os.path.join(self.out, "clip.mp3")) > 0)
+        self.assertEqual(sorted(os.listdir(self.out)), ["a_mp3.txt", "clip.mp3", "clip.mp4"])
