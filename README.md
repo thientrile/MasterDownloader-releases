@@ -14,13 +14,12 @@ App Windows tải video, bài ảnh và story từ TikTok, Instagram, Facebook. 
 
 | Nền tảng / công cụ | Tải được |
 |---|---|
-| TikTok | Video, bài ảnh (`/photo/`), story lẻ, toàn bộ story của trang cá nhân (`/@user/stories`), mọi video của trang cá nhân (`/@user`) |
+| TikTok | Video, bài ảnh (`/photo/`), story lẻ, toàn bộ story của trang cá nhân (`/@user/stories`), cả trang cá nhân (`/@user`: video + bài ảnh + story) |
 | Instagram | Bài viết, reel, story, highlight (cần cookie hoặc tài khoản) |
 | Facebook | Video và reel công khai |
 | Quét trùng | Tìm ảnh/video trùng nội dung (MD5) trong một thư mục, xem trước rồi mới xoá |
+| Chỉ tải MP3 | Bật trong Cài đặt: video TikTok, Instagram, Facebook được lưu thành file `.mp3` |
 | Khác | Tải nhiều link cùng lúc (chỉnh được số lượt), bỏ qua file đã tải, kéo thả link, tự cập nhật |
-
-> Tuỳ chọn chỉ tải âm thanh (MP3) đang ở [PR #5](https://github.com/thientrile/MasterDownloader-releases/pull/5), chưa có trong bản phát hành.
 
 ## Cài đặt
 
@@ -59,11 +58,24 @@ Link app nhận:
 | Một bài ảnh | `https://www.tiktok.com/@user/photo/123…` |
 | Một story | Link chia sẻ story, hoặc `https://www.tiktok.com/@user/story/123…` |
 | Mọi story của trang | `https://www.tiktok.com/@user/stories` |
-| Mọi video của trang | `https://www.tiktok.com/@user` |
+| Cả trang cá nhân: video, bài ảnh và story | `https://www.tiktok.com/@user` |
+
+Link trang cá nhân tải lần lượt mọi video, rồi mọi bài ảnh, rồi story đang có. Story chỉ tồn tại 24 giờ, nên app chỉ lấy được story còn hiển thị lúc tải. TikTok trên web không có highlight (story nổi bật), nên không có gì để tải ở mục đó.
 
 Với link trang cá nhân, lần tải sau chỉ lấy bài mới vì app nhớ những gì đã tải. Muốn đổi nơi lưu cho một dòng thì chọn dòng đó rồi bấm **Đổi thư mục**; app nhớ thư mục theo tên tài khoản cho những lần sau.
 
-### 2. Instagram và Facebook: cookie
+### 2. Chỉ tải âm thanh (MP3)
+
+Vào **Cài đặt → Chung** và tick **Chỉ tải âm thanh (MP3)**. Từ đó, mọi link mới được lưu dưới dạng `.mp3` thay vì video:
+
+- Video TikTok, Instagram, Facebook: lấy tiếng của video.
+- Bài ảnh TikTok: không có video, nên chỉ lưu nhạc nền của bài (không lưu ảnh).
+- Video đã tải trước đó (file `.mp4` đã có trong thư mục) được **giữ nguyên**; app chỉ tạo thêm file `.mp3` bên cạnh.
+- Danh sách "đã tải" của chế độ MP3 tách riêng với chế độ video, nên bật/tắt qua lại không làm app bỏ qua bài nào.
+
+Bỏ tick để quay lại tải video. Lượt tải đang chạy vẫn giữ chế độ lúc bắt đầu.
+
+### 3. Instagram và Facebook: cookie
 
 Instagram chỉ cho tải khi đã đăng nhập, nên app cần **cookie** (hoặc tên đăng nhập/mật khẩu) trong **Cài đặt**. TikTok chỉ cần cookie khi bị chặn (lỗi 429). Facebook tự thử dùng cookie của trình duyệt Edge; video công khai thường không cần gì thêm.
 
@@ -81,7 +93,7 @@ Lưu ý: cookie cho phép đăng nhập vào tài khoản của bạn, nên đ�
 - Nên dùng tài khoản phụ: tải nhiều có thể khiến nền tảng hạn chế tài khoản.
 - Nghi lộ cookie thì **đăng xuất** tài khoản trên trình duyệt; cookie cũ sẽ hết hiệu lực.
 
-### 3. Quét file trùng
+### 4. Quét file trùng
 
 ![Trang Quét trùng](docs/images/duplicates.png)
 
@@ -133,12 +145,12 @@ Lỗi khác: mở [Issue](https://github.com/thientrile/MasterDownloader-release
 MasterDownloader is a free, open-source (GPL-3.0) Windows app that downloads videos, photo posts and stories from TikTok, Instagram and Facebook. It sorts files into one folder per account, skips what it has already downloaded, finds and removes duplicate files, and updates itself.
 
 - **Install:** download `MasterDownloader-Setup.exe` (per-user installer, no admin rights needed) or the portable `MasterDownloader.exe` from [Releases](https://github.com/thientrile/MasterDownloader-releases/releases/latest). The exe is unsigned, so SmartScreen warns on first run: click **More info → Run anyway**. Verify with `Get-FileHash <file> -Algorithm SHA256` against `SHA256SUMS.txt`.
-- **Use:** paste a link (TikTok video, photo post, story, `/@user/stories`, or `/@user` profile; Instagram post/reel/story/highlight; Facebook video) and click **Tải ngay** (Download). The UI is in Vietnamese; the screenshots above follow the steps.
+- **Use:** paste a link (TikTok video, photo post, story, `/@user/stories`, or a `/@user` profile, which fetches its videos, photo posts and current stories (stories last 24 hours; TikTok web has no highlights); Instagram post/reel/story/highlight; Facebook video) and click **Tải ngay** (Download). The UI is in Vietnamese; the screenshots above follow the steps.
 - **Cookies:** Instagram needs a cookie or login under **Cài đặt** (Settings). Copy the `cookie` request header from your browser's DevTools (F12 → Network) while logged in. Treat it like a password: never share it, prefer a secondary account, and log out in the browser to invalidate a leaked cookie. TikTok only needs a cookie when rate-limited (429).
 - **Files and data:** downloads go to the chosen folder (default: your Downloads folder, one subfolder per account). App data, including settings, download history, and encrypted cookies and credentials, lives in `%APPDATA%\MasterDownloader` and is kept on uninstall.
 - **Updates:** the app checks GitHub once a day, asks before installing, verifies SHA256 and restarts. Patch releases ship automatically when yt-dlp or gallery-dl update.
 - **Troubleshooting:** for TikTok 403, the app retries automatically; if that fails, wait, update, or add a TikTok cookie. For 429, lower concurrent downloads and add a cookie. For Instagram login errors, the cookie has expired, so paste a fresh one. For a video without sound, update and check the log (ffmpeg is bundled). Otherwise open an issue with the log, after removing cookies and personal paths.
-- MP3 (audio only) is pending in [PR #5](https://github.com/thientrile/MasterDownloader-releases/pull/5).
+- **MP3 only:** tick **Chỉ tải âm thanh (MP3)** under Settings → General to save new downloads as `.mp3`. TikTok photo posts keep only their background music. Existing `.mp4` files are kept and get an `.mp3` next to them.
 
 ## Chạy từ source / Run from source
 
