@@ -160,19 +160,19 @@ class ProfileFlowTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    PHOTO = {"id": "2", "formats": [{"vcodec": "none", "acodec": "aac"}]}
+    POSTS = "https://www.tiktok.com/@linhpntt/posts"
+    # Dong log that cua gallery-dl 1.32 (extractor tiktok, creator/item_list)
+    PAGE1 = f"[tiktok][info] {POSTS}: retrieving creator/item_list page 1 (0 items)"
+    NONE_LEFT = "[tiktok][warning] Could not extract any posts from TikTok user linhpntt, try extracting post information using yt-dlp with the -o ytdl=true argument"
+    NO_RESULTS = f"[tiktok][info] No results for {POSTS}"
 
-    def _download(self, runs, entries=(PHOTO,)):
+    def _download(self, runs):
+        # yt-dlp mock khong goi match_filter: ban that co the loi o bai anh truoc khi loc
         ydl_calls, gdl_calls, progress = [], [], []
-
-        def fake_download(opts, urls):
-            ydl_calls.append((opts, urls))
-            for info in entries:
-                opts["match_filter"](info, incomplete=False)
 
         def fake_prepare(opts, label):
             ydl = mock.MagicMock()
-            ydl.__enter__.return_value.download.side_effect = lambda urls: fake_download(opts, urls)
+            ydl.__enter__.return_value.download.side_effect = lambda urls: ydl_calls.append((opts, urls))
             return ydl
 
         def fake_run(cmd, progress_callback=None):
@@ -236,24 +236,30 @@ class ProfileFlowTest(unittest.TestCase):
         self.assertIsNone(match(video, incomplete=False))
         self.assertIsNone(match({"url": "x"}, incomplete=True))
 
-    def test_no_photos_or_stories_is_not_an_error(self):
-        # yt-dlp chi thay video: khong goi gallery-dl cho bai anh
-        none = (0, ["[tiktok][info] No results for https://www.tiktok.com/@linhpntt/stories"])
-        self._download([none], entries=({"id": "1", "formats": [{"vcodec": "h264"}]},))
-        self.assertEqual([c[-1] for c in self.gdl_calls], ["https://www.tiktok.com/@linhpntt/stories"])
+    def test_video_only_profile_and_no_stories_is_not_an_error(self):
+        # Danh sach co bai nhung videos=false loc het
+        video_only = (0, [self.PAGE1, self.NONE_LEFT, self.NO_RESULTS])
+        no_story = (0, ["[tiktok][info] No results for https://www.tiktok.com/@linhpntt/stories"])
+        self._download([video_only, no_story])
         status, msg = self.progress[-1]
         self.assertEqual(status, "100%")
         self.assertIn("Không có story", msg)
         self.assertIn("Không có bài ảnh", msg)
 
-    def test_blocked_photo_list_is_an_error(self):
-        # TikTok chan API danh sach: gallery-dl canh bao roi thoat 0 voi "No results"
-        posts = "https://www.tiktok.com/@linhpntt/posts"
-        blocked = (0, ["[tiktok][warning] Could not extract any posts from TikTok user linhpntt",
-                       "[tiktok][info] No results for " + posts])
-        with self.assertRaisesRegex(RuntimeError, "không trả danh sách bài ảnh"):
-            self._download([blocked, (0, ["ok"])])
+    def _assert_list_error(self, lines):
+        with self.assertRaisesRegex(RuntimeError, "không trả danh sách bài"):
+            self._download([(0, lines), (0, ["ok"])])
         self.assertNotIn("Đã tải xong video, bài ảnh và story của trang cá nhân.", [m for _, m in self.progress])
+
+    def test_empty_first_page_is_an_error(self):
+        # TikTok tra trang dau rong (bi chan): gallery-dl van thoat 0 voi "No results"
+        self._assert_list_error([self.PAGE1, f"[tiktok][warning] {self.POSTS}: could not extract any posts for this user",
+                                 self.NONE_LEFT, self.NO_RESULTS])
+
+    def test_failed_list_request_is_an_error(self):
+        self._assert_list_error([self.PAGE1, f"[tiktok][warning] {self.POSTS}: failed to retrieve creator/item_list page 1",
+                                 f"[tiktok][error] {self.POSTS}: failed to retrieve creator/item_list page 1",
+                                 self.NONE_LEFT, self.NO_RESULTS])
 
     def test_story_403_after_retry_fails_row_but_photos_still_run(self):
         post = "https://www.tiktok.com/@linhpntt/video/1"
