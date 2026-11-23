@@ -38,7 +38,7 @@ def enable_crash_logging():
         faulthandler.enable()
 
 APP_STYLE = """
-QMainWindow {
+QMainWindow, QDialog {
     background: #0f1419;
     color: #e7edf3;
 }
@@ -204,7 +204,7 @@ QPushButton#dangerButton {
 QPushButton#dangerButton:hover {
     background: #e23b3b;
 }
-QTableWidget {
+QTableWidget, QTreeWidget {
     background: #11171d;
     alternate-background-color: #151d25;
     border: 1px solid #2b3642;
