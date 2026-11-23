@@ -1,0 +1,44 @@
+name: auto-patch
+
+# Moi tuan: yt-dlp/gallery-dl co ban moi so voi Release moi nhat -> build, test, phat hanh vX.Y.Z+1
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: auto-patch
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          args=(--check --tag "$latest")
+          if gh release view "$latest" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qx versions.txt; then
+            gh release download "$latest" --repo "$GITHUB_REPOSITORY" --pattern versions.txt --dir old
+            args+=(--released old/versions.txt)
+          fi
+          python3 tools/dep_check.py "${args[@]}" | tee -a "$GITHUB_OUTPUT"
+
+  release:
+    needs: check
+    if: needs.check.outputs.tag != ''
+    # Tran quyen cho workflow duoc goi: job windows van chi doc, job release trong do moi ghi
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ needs.check.outputs.tag }}
+    secrets:
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
