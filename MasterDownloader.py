@@ -1238,7 +1238,13 @@ class MasterDownloader:
                 code, lines = code or 1, lines + other_errors
 
         output = "\n".join(lines).lower()
-        if code == 0 and "no results for" not in output:
+        # Chi tinh dong ][error]: ][warning] "failed to retrieve" la lan thu lai, co the da thanh cong
+        list_failed = kind == "photos" and any("][error]" in l and "failed to retrieve" in l.lower() for l in lines)
+        if list_failed and "no results for" not in output:
+            # gallery-dl loi o trang N cua danh sach nhung van thoat 0 voi cac bai cua trang truoc
+            msg = "Chỉ tải được một phần bài ảnh (TikTok lỗi khi lấy tiếp danh sách). Tải lại link để lấy tiếp."
+            status = "Error"
+        elif code == 0 and "no results for" not in output:
             msg = f"Đã tải xong TikTok {label}."
             status = "100%"
         elif "could not extract any stories" in output or ("no results for" in output and kind == "stories" and not retry_urls):
@@ -1247,7 +1253,7 @@ class MasterDownloader:
         elif retry_urls and "403" in output:
             msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"
-        elif kind == "photos" and ("failed to retrieve" in output or "could not extract any posts for this user" in output):
+        elif kind == "photos" and (list_failed or "could not extract any posts for this user" in output):
             # API danh sach loi, hoac trang dau tra rong (bi chan / trang chua co bai nao)
             msg = "TikTok không trả danh sách bài của trang (có thể đang chặn). Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
             status = "Error"

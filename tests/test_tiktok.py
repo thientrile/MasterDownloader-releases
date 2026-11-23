@@ -261,6 +261,23 @@ class ProfileFlowTest(unittest.TestCase):
                                  f"[tiktok][error] {self.POSTS}: failed to retrieve creator/item_list page 1",
                                  self.NONE_LEFT, self.NO_RESULTS])
 
+    def test_retry_warning_then_video_only_is_not_an_error(self):
+        # Lan dau loi, lan thu lai thanh cong: chi co ][warning], khong phai bi chan
+        self._download([(0, [self.PAGE1, f"[tiktok][warning] {self.POSTS}: failed to retrieve creator/item_list page 1",
+                             self.NONE_LEFT, self.NO_RESULTS]), (0, ["ok"])])
+        status, msg = self.progress[-1]
+        self.assertEqual(status, "100%")
+        self.assertIn("Không có bài ảnh", msg)
+
+    def test_list_error_on_later_page_is_partial(self):
+        # Trang 2 loi het so lan thu nhung gallery-dl van thoat 0 voi anh cua trang 1
+        lines = [self.PAGE1, f"[tiktok][info] {self.POSTS}: retrieving creator/item_list page 2 (15 items)",
+                 f"[tiktok][warning] {self.POSTS}: failed to retrieve creator/item_list page 2",
+                 f"[tiktok][error] {self.POSTS}: failed to retrieve creator/item_list page 2",
+                 "/out/linhpntt/7704774145829063967_01 x.jpg"]
+        with self.assertRaisesRegex(RuntimeError, "Chỉ tải được một phần bài ảnh"):
+            self._download([(0, lines), (0, ["ok"])])
+
     def test_story_403_after_retry_fails_row_but_photos_still_run(self):
         post = "https://www.tiktok.com/@linhpntt/video/1"
         fail = f"[tiktok][error] {post}: Failed to extract post (HttpError: '403 Forbidden' for '{post}')"
