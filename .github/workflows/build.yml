@@ -55,6 +55,24 @@ jobs:
             dist/MasterDownloader.exe
             dist/SHA256SUMS.txt
 
+  # Kiem RELEASES_TOKEN con ghi duoc repo releases ma khong phat hanh gi: tao roi xoa mot draft
+  # (draft khong cong khai, khong tao tag). Token het han thi PR do, truoc khi tag that bi hong.
+  releases-token:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Draft release round trip
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::Secret RELEASES_TOKEN chua duoc dat"
+            exit 1
+          fi
+          tag="token-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh release create "$tag" --repo "$RELEASES_REPO" --draft --title "CI token check" --notes "Tu xoa ngay"
+          gh release delete "$tag" --repo "$RELEASES_REPO" --yes
+
   release:
     needs: windows
     if: startsWith(github.ref, 'refs/tags/v')
