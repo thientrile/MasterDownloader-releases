@@ -7,7 +7,7 @@ This is the source code and release repository of MasterDownloader. License: **G
 
 ## Tải bản Windows
 
-Vào [Releases](../../releases), tải `MasterDownloader.exe`. Kiểm tra checksum (tuỳ chọn):
+Vào [Releases](https://github.com/thientrile/MasterDownloader-releases/releases), tải `MasterDownloader.exe`. Kiểm tra checksum (tuỳ chọn):
 
 ```powershell
 Get-FileHash MasterDownloader.exe -Algorithm SHA256   # so với SHA256SUMS.txt

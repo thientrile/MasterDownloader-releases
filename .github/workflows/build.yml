@@ -64,6 +64,7 @@ jobs:
           name: MasterDownloader-windows
           path: dist
 
+      # Repo nay (MasterDownloader-releases) vua chua ma nguon vua la noi updater doc releases/latest
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

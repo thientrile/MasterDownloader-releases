@@ -38,6 +38,12 @@ RELEASE = {
 }
 
 
+class SourceRepoTest(unittest.TestCase):
+    def test_latest_url_points_at_releases_repo(self):
+        self.assertEqual(updater.LATEST_URL,
+                         f"https://api.github.com/repos/{updater.RELEASES_REPO}/releases/latest")
+
+
 class VersionTest(unittest.TestCase):
     def test_parse(self):
         self.assertEqual(updater.parse_version("v1.10.0"), (1, 10, 0))

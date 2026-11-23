@@ -7,7 +7,9 @@ import sys
 
 import requests
 
-LATEST_URL = "https://api.github.com/repos/thientrile/MasterDownloader/releases/latest"
+# Repo public chua ca ma nguon lan Release
+RELEASES_REPO = "thientrile/MasterDownloader-releases"
+LATEST_URL = f"https://api.github.com/repos/{RELEASES_REPO}/releases/latest"
 EXE_NAME = "MasterDownloader.exe"
 SUMS_NAME = "SHA256SUMS.txt"
 
