@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
                              QLabel, QFileDialog, QMessageBox, QProgressBar, QGroupBox, 
                              QPlainTextEdit, QLineEdit, QSplitter, QTabWidget, QFormLayout, QMenu,
-                             QSpinBox, QProgressBar, QDialog, QTreeWidget, QTreeWidgetItem,
+                             QSpinBox, QCheckBox, QProgressBar, QDialog, QTreeWidget, QTreeWidgetItem,
                              QDialogButtonBox, QScrollArea, QFrame, QListWidget, QStackedWidget, QToolButton)
 from PyQt6.QtGui import QColor, QFont, QIcon, QAction, QDesktopServices
 from PyQt6.QtCore import QUrl
@@ -537,6 +537,7 @@ class MainWindow(QMainWindow):
 
         # Gioi han so luong tai dong thoi (doc tu config, mac dinh 3)
         self._apply_max_concurrent(self.config.get("max_concurrent", 3))
+        self.downloader.audio_only = bool(self.config.get("audio_only", False))
         print(f"Multimedia Thread Pool running with {self.threadpool.maxThreadCount()} threads.")
 
         self.init_ui()
@@ -835,6 +836,12 @@ class MainWindow(QMainWindow):
         h_conc.addStretch()
         gen_layout.addLayout(h_conc)
 
+        self.chk_audio_only = QCheckBox("Chỉ tải âm thanh (MP3)")
+        self.chk_audio_only.setToolTip("Áp dụng cho video TikTok, Instagram, Facebook. Bài ảnh TikTok chỉ lưu nhạc nền.")
+        self.chk_audio_only.setChecked(self.downloader.audio_only)
+        self.chk_audio_only.toggled.connect(self.on_audio_only_toggled)
+        gen_layout.addWidget(self.chk_audio_only)
+
         grp_general.setLayout(gen_layout)
         settings_layout.addWidget(grp_general)
 
@@ -1026,6 +1033,12 @@ class MainWindow(QMainWindow):
         self.config["max_concurrent"] = applied
         self.save_config()
         self.log(f"Số luồng tải đồng thời: {applied}", "INFO")
+
+    def on_audio_only_toggled(self, checked):
+        self.downloader.audio_only = checked
+        self.config["audio_only"] = checked
+        self.save_config()
+        self.log(f"Chỉ tải âm thanh (MP3): {'bật' if checked else 'tắt'}", "INFO")
 
     def save_ig_credentials(self):
         user = self.txt_ig_user.text().strip()
