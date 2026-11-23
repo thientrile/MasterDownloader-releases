@@ -44,10 +44,11 @@ jobs:
         run: |
           mkdir -p dist
           python tools/third_party_licenses.py dist/THIRD_PARTY_LICENSES.txt
-          cp TERMS.txt .github/release-notes.md dist/
+          cp LICENSE dist/LICENSE.txt
+          cp DISCLAIMER.txt .github/release-notes.md dist/
 
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl --add-data "TERMS.txt;." --add-data "dist/THIRD_PARTY_LICENSES.txt;." App.py
+        run: pyinstaller --noconfirm --onefile --windowed --name MasterDownloader --collect-submodules gallery_dl --add-data "LICENSE;." --add-data "DISCLAIMER.txt;." --add-data "dist/THIRD_PARTY_LICENSES.txt;." App.py
 
       - name: Build installer
         shell: pwsh
@@ -63,7 +64,7 @@ jobs:
         run: |
           $app = "$env:LOCALAPPDATA\Programs\MasterDownloader"
           Start-Process dist\MasterDownloader-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
-          foreach ($f in 'MasterDownloader.exe','unins000.exe','TERMS.txt','THIRD_PARTY_LICENSES.txt') { if (-not (Test-Path "$app\$f")) { throw "install failed: $f missing" } }
+          foreach ($f in 'MasterDownloader.exe','unins000.exe','LICENSE.txt','DISCLAIMER.txt','THIRD_PARTY_LICENSES.txt') { if (-not (Test-Path "$app\$f")) { throw "install failed: $f missing" } }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MasterDownloader\MasterDownloader.lnk")) { throw "no Start Menu shortcut" }
           $data = "$env:APPDATA\MasterDownloader"
           New-Item -ItemType Directory -Force $data | Out-Null
@@ -89,7 +90,8 @@ jobs:
             dist/MasterDownloader-Setup.exe
             dist/SHA256SUMS.txt
             dist/THIRD_PARTY_LICENSES.txt
-            dist/TERMS.txt
+            dist/LICENSE.txt
+            dist/DISCLAIMER.txt
             dist/release-notes.md
 
   # Kiem RELEASES_TOKEN con ghi duoc repo releases ma khong phat hanh gi: tao roi xoa mot draft
@@ -138,7 +140,7 @@ jobs:
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
           # Repo releases khong co code nen khong --generate-notes
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/TERMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt \
             --repo "$RELEASES_REPO" --title "$GITHUB_REF_NAME" --notes-file notes.md "${flags[@]}"
 
       # Repo goc: ban v1.0.0/v1.0.1 dang cai van hoi releases/latest o day
@@ -148,5 +150,5 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/TERMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/MasterDownloader.exe dist/MasterDownloader-Setup.exe dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt dist/LICENSE.txt dist/DISCLAIMER.txt \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes "${flags[@]}"
