@@ -1,6 +1,9 @@
+import functools
+import http.server
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -74,6 +77,10 @@ class GalleryDlFlowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dl = make_downloader(self.tmp.name)
+        # Chuoi du phong 403: khong ngu that, khong goi yt-dlp that
+        self.sleep = mock.patch("MasterDownloader.time.sleep").start()
+        self.addCleanup(mock.patch.stopall)
+        self.dl._tiktok_id_url = mock.Mock(side_effect=RuntimeError("no network in tests"))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -117,11 +124,14 @@ class GalleryDlFlowTest(unittest.TestCase):
         fail = (f"[tiktok][error] {post}: Failed to extract post "
                 f"(HttpError: '403 Forbidden' for '{post}?redirected=1')")
         stories = "https://www.tiktok.com/@chang18102003/stories"
-        calls, progress = self._download(stories, stories, [(4, [fail, "[tiktok][info] No results for " + stories]),
-                                                            (0, ["ok"])])
-        self.assertEqual(len(calls), 2)
+        nr = "[tiktok][info] No results for " + stories
+        # browser=chrome 403, lay ID loi, cau hinh mac dinh 403, roi chay lai bai 403 bang browser=chrome
+        calls, progress = self._download(stories, stories, [(4, [fail, nr]), (4, [fail, nr]), (0, ["ok"])])
+        self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0][-1], stories)
-        self.assertEqual(calls[1][-1], post)
+        self.assertNotIn("browser=chrome", calls[1])
+        self.assertEqual(calls[2][-1], post)
+        self.assertEqual(calls[2][:-1], calls[0][:-1])
         self.assertEqual(progress[-1], "100%")
 
     def test_profile_without_stories_raises_for_gui(self):
@@ -135,7 +145,7 @@ class GalleryDlFlowTest(unittest.TestCase):
         stories = "https://www.tiktok.com/@chang18102003/stories"
         no_results = "[tiktok][info] No results for " + stories
         with self.assertRaisesRegex(RuntimeError, r"chặn \(403\)"):
-            self._download(stories, stories, [(4, [fail, no_results]), (4, [fail, "[tiktok][info] No results for " + post])])
+            self._download(stories, stories, [(4, [fail, no_results])] * 2 + [(4, [fail, "[tiktok][info] No results for " + post])])
 
     def test_post_without_results_has_clear_message(self):
         with self.assertRaisesRegex(RuntimeError, "Không tìm thấy nội dung"):
@@ -147,7 +157,7 @@ class GalleryDlFlowTest(unittest.TestCase):
         other = "[download][error] Failed to download STORY - 2.mp4"
         stories = "https://www.tiktok.com/@chang18102003/stories"
         with self.assertRaisesRegex(RuntimeError, "STORY - 2"):
-            self._download(stories, stories, [(4, [fail, other]), (0, ["ok"])])
+            self._download(stories, stories, [(4, [fail, other])] * 2 + [(0, ["ok"])])
 
 
 class ProfileFlowTest(unittest.TestCase):
@@ -156,6 +166,10 @@ class ProfileFlowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dl = make_downloader(self.tmp.name)
+        # Chuoi du phong 403: khong ngu that, khong goi yt-dlp that
+        self.sleep = mock.patch("MasterDownloader.time.sleep").start()
+        self.addCleanup(mock.patch.stopall)
+        self.dl._tiktok_id_url = mock.Mock(side_effect=RuntimeError("no network in tests"))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -282,9 +296,9 @@ class ProfileFlowTest(unittest.TestCase):
         post = "https://www.tiktok.com/@linhpntt/video/1"
         fail = f"[tiktok][error] {post}: Failed to extract post (HttpError: '403 Forbidden' for '{post}')"
         with self.assertRaisesRegex(RuntimeError, r"chặn \(403\)"):
-            self._download([(0, ["ok"]), (4, [fail]), (4, [fail])])
-        self.assertEqual(len(self.gdl_calls), 3)
-        self.assertEqual(self.gdl_calls[2][-1], post)
+            self._download([(0, ["ok"]), (4, [fail]), (4, [fail]), (4, [fail])])
+        self.assertEqual(len(self.gdl_calls), 4)
+        self.assertEqual(self.gdl_calls[3][-1], post)
 
     # Dong log that tu owner (v1.0.2, Windows, 2026-11-24): gallery-dl lay danh sach qua yt-dlp
     PARSE_JSON = ("[tiktok][error] An unexpected error occurred: DownloadError - ERROR: nabisayhiii: "
@@ -342,6 +356,132 @@ class ProfileFlowTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "No space left on device") as ctx:
             self._download([(1, [disk]), (0, ["ok"])])
         self.assertNotIn("TikTok tạm chặn", str(ctx.exception))
+
+    # Dong log that tu owner (v1.0.3): tuong lua TikTok tra 403 ngau nhien cho trang ca nhan
+    PROFILE_403 = "[tiktok][error] HttpError: '403 Forbidden' for 'https://www.tiktok.com/@linhpntt'"
+
+    SEC_UID = "MS4wLjABAAAAGBM6no_We8HlJv9Glfhv3lgSs_OUYJDS42A1f5XWsc5Cm5QDyZF1kYgwT6fB1uiz"
+    ID_URL = f"https://www.tiktok.com/@{SEC_UID}/posts"
+
+    POST_403 = ("[tiktok][error] https://www.tiktok.com/@linhpntt/video/1: Failed to extract post "
+                "(HttpError: '403 Forbidden' for 'https://www.tiktok.com/@linhpntt/video/1')")
+
+    def _download_403(self, runs, id_url=ID_URL):
+        self.dl._tiktok_id_url = mock.Mock(return_value=id_url) if isinstance(id_url, str) else mock.Mock(side_effect=id_url)
+        try:
+            self._download(runs)
+        finally:
+            self.sleeps = [c.args[0] for c in self.sleep.call_args_list]
+
+    def test_gallerydl_runs_as_chrome_first(self):
+        self._download([(0, ["ok"]), (0, ["ok"])])
+        for cmd in self.gdl_calls:
+            self.assertIn("browser=chrome", cmd)
+        self.sleep.assert_not_called()
+
+    def test_profile_403_uses_id_from_ytdlp_without_waiting(self):
+        self._download_403([(4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
+        self.assertEqual(self.sleeps, [0])
+        self.assertEqual(self.gdl_calls[1][-1], self.ID_URL)
+        self.assertEqual(self.gdl_calls[1][:-1], self.gdl_calls[0][:-1])
+        self.assertTrue(any("1 browser=chrome: 403; 2 lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân: CHẠY ĐƯỢC" in m
+                            for _, m in self.progress))
+        self.assertEqual(self.progress[-1][0], "100%")
+
+    def test_post_403_is_not_success(self):
+        # Review t-0008: buoc lay ID het 403 trang ca nhan nhung tung bai van 403 -> chua chay duoc
+        self._download_403([(4, [self.PROFILE_403]), (4, [self.POST_403]), (0, ["ok"]), (0, ["ok"])])
+        self.assertEqual(self.sleeps, [0, 5])
+        default = self.gdl_calls[2]
+        self.assertNotIn("browser=chrome", default)
+        self.assertEqual(default[-1], self.POSTS)
+        msg = next(m for _, m in self.progress if "CHẠY ĐƯỢC" in m)
+        self.assertIn("2 lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân: 403; 3 cấu hình mặc định của gallery-dl: CHẠY ĐƯỢC", msg)
+
+    def test_profile_403_with_cookie_tries_without_cookie_last(self):
+        self.dl.get_manual_cookie = lambda platform: "msToken=x; sessionid=y"
+        self.dl.data_dir = self.tmp.name
+        self._download_403([(4, [self.PROFILE_403])] * 3 + [(0, ["ok"]), (0, ["ok"])])
+        self.assertEqual(self.sleeps, [0, 5, 8])
+        for cmd in self.gdl_calls[:3]:
+            self.assertIn("--cookies", cmd)
+        no_cookie = self.gdl_calls[3]
+        self.assertNotIn("--cookies", no_cookie)
+        self.assertIn("browser=chrome", no_cookie)
+        self.assertTrue(any("4 không gửi TikTok Cookie đã lưu: CHẠY ĐƯỢC" in m for _, m in self.progress))
+
+    def test_profile_403_gives_up_with_one_clear_message(self):
+        # Bai anh va story deu bi 403: moi buoc thu het cac cach, loi chi hien 1 lan; tong cho <= 30s
+        self.dl.get_manual_cookie = lambda platform: "msToken=x; sessionid=y"
+        self.dl.data_dir = self.tmp.name
+        with self.assertRaises(RuntimeError) as ctx:
+            self._download_403([(4, [self.PROFILE_403])] * 8, id_url=RuntimeError("yt-dlp không trả secUid của tài khoản"))
+        self.assertEqual(self.sleeps, [0, 5, 8] * 2)
+        self.assertLessEqual(sum(self.sleeps), 30)
+        self.assertEqual(len(self.gdl_calls), 6)
+        msg = str(ctx.exception)
+        self.assertIn("TikTok tạm chặn (403) trang cá nhân", msg)
+        self.assertIn("đã thử: 1 browser=chrome: 403; 2 lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân: lỗi (yt-dlp không trả secUid", msg)
+        self.assertIn("3 cấu hình mặc định của gallery-dl: 403; 4 không gửi TikTok Cookie đã lưu: 403", msg)
+        self.assertEqual(msg.count("TikTok tạm chặn"), 1)
+        self.assertNotIn("|", msg)
+
+    def test_id_url_from_ytdlp(self):
+        del self.dl._tiktok_id_url  # ham that, yt-dlp mock
+        info = {"id": self.SEC_UID, "entries": [{"channel_id": self.SEC_UID, "uploader_id": "7307341852653552641"}]}
+        with mock.patch("MasterDownloader.yt_dlp.YoutubeDL") as ydl:
+            ydl.return_value.__enter__.return_value.extract_info.return_value = info
+            self.assertEqual(self.dl._tiktok_id_url(self.POSTS), self.ID_URL)
+            self.assertEqual(self.dl._tiktok_id_url("https://www.tiktok.com/@linhpntt/stories"),
+                             "https://www.tiktok.com/@7307341852653552641/stories")
+            ydl.return_value.__enter__.return_value.extract_info.return_value = {"id": "linhpntt", "entries": []}
+            with self.assertRaises(RuntimeError):
+                self.dl._tiktok_id_url(self.POSTS)
+
+    def test_403_on_a_file_names_the_cause(self):
+        err = "[download][error] HttpError: '403 Forbidden' for 'https://p16-sign-va.tiktokcdn.com/x.jpeg'"
+        with self.assertRaisesRegex(RuntimeError, r"TikTok tạm chặn \(403\), thử lại sau ít phút.*tải lại link để thử lại phần lỗi"):
+            self._download([(4, [err, "/out/linhpntt/1_01 x.jpg"])] * 2 + [(0, ["ok"])])
+        self.assertEqual(len(self.gdl_calls), 3)
+
+
+class UAHandler(http.server.SimpleHTTPRequestHandler):
+    agents = []
+
+    def do_GET(self):
+        self.agents.append(self.headers.get("User-Agent", ""))
+        super().do_GET()
+
+    def log_message(self, *args):
+        pass
+
+
+class GalleryDlChromeTest(unittest.TestCase):
+    """gallery-dl that voi browser=chrome (header + bo ma TLS Chrome) qua HTTP cuc bo.
+    CI Windows la noi duy nhat kiem duoc tuy chon nay tren Windows."""
+
+    def test_browser_chrome_runs(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        src, out = os.path.join(tmp.name, "src"), os.path.join(tmp.name, "out")
+        os.makedirs(src)
+        with open(os.path.join(src, "a.jpg"), "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0 test")
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(UAHandler, directory=src))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        dl = make_downloader(tmp.name)
+        cmd = [sys.executable, "-m", "gallery_dl", "--no-colors", "-o", "browser=chrome", "--directory", out,
+               f"http://127.0.0.1:{server.server_address[1]}/a.jpg"]
+        code, lines = dl._run_gallerydl(cmd)
+        self.assertEqual(code, 0, lines)
+        # Ten file co "127.0.0.1:port__" (Windows doi ":"), chi xet duoi
+        files = os.listdir(out)
+        self.assertEqual(len(files), 1)
+        self.assertTrue(files[0].endswith("a.jpg"), files)
+        # browser=chrome co hieu luc: User-Agent Chrome thay vi Firefox mac dinh
+        self.assertIn("Chrome/", UAHandler.agents[-1])
 
 
 if __name__ == "__main__":
