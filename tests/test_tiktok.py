@@ -343,6 +343,35 @@ class ProfileFlowTest(unittest.TestCase):
             self._download([(1, [disk]), (0, ["ok"])])
         self.assertNotIn("TikTok tạm chặn", str(ctx.exception))
 
+    # Dong log that tu owner (v1.0.3): tuong lua TikTok tra 403 ngau nhien cho trang ca nhan
+    PROFILE_403 = "[tiktok][error] HttpError: '403 Forbidden' for 'https://www.tiktok.com/@linhpntt'"
+
+    def test_profile_403_waits_and_retries(self):
+        with mock.patch("MasterDownloader.time.sleep") as sleep:
+            self._download([(4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
+        sleep.assert_called_once_with(5)
+        self.assertEqual(self.gdl_calls[0], self.gdl_calls[1])
+        self.assertEqual(self.progress[-1][0], "100%")
+
+    def test_profile_403_gives_up_with_one_clear_message(self):
+        # Bai anh va story deu bi 403 o trang ca nhan: moi buoc thu 4 lan, loi chi hien 1 lan
+        with mock.patch("MasterDownloader.time.sleep") as sleep:
+            with self.assertRaises(RuntimeError) as ctx:
+                self._download([(4, [self.PROFILE_403])] * 8)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 15, 30] * 2)
+        self.assertEqual(len(self.gdl_calls), 8)
+        msg = str(ctx.exception)
+        self.assertIn("TikTok tạm chặn (403) trang cá nhân", msg)
+        self.assertEqual(msg.count("TikTok tạm chặn"), 1)
+        self.assertNotIn("|", msg)
+
+    def test_403_on_a_file_names_the_cause(self):
+        err = "[download][error] HttpError: '403 Forbidden' for 'https://p16-sign-va.tiktokcdn.com/x.jpeg'"
+        with mock.patch("MasterDownloader.time.sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, r"TikTok tạm chặn \(403\), thử lại sau ít phút.*tải lại link để thử lại phần lỗi"):
+                self._download([(4, [err, "/out/linhpntt/1_01 x.jpg"]), (0, ["ok"])])
+        sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

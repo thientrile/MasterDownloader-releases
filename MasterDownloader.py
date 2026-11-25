@@ -1092,7 +1092,8 @@ class MasterDownloader:
                 # Trang khong co bai anh / story dang hien thi la binh thuong, khong phai loi
                 (notes if str(e).startswith(("Không có story", "Không có bài ảnh")) else errors).append(str(e))
         if errors:
-            raise RuntimeError("Video đã tải; " + " | ".join(errors))
+            # Bai anh va story deu mo trang ca nhan: bi chan thi 2 buoc bao cung mot loi
+            raise RuntimeError("Video đã tải; " + " | ".join(dict.fromkeys(errors)))
         msg = "Đã tải xong video, bài ảnh và story của trang cá nhân."
         if notes:
             msg = "Đã tải xong trang cá nhân. " + " ".join(notes)
@@ -1180,6 +1181,16 @@ class MasterDownloader:
     def _run_tiktok_gallerydl(self, cmd, url, progress_callback=None):
         """Chay gallery-dl cho TikTok, chay lai 1 lan cac bai bi 403. Tra ve (code, lines, retry_urls)."""
         code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
+        # Tuong lua chong bot cua TikTok tra 403 ngau nhien cho trang ca nhan (khong lay duoc bai nao):
+        # cho roi chay lai, lau dan
+        for wait in self.TIKTOK_PROFILE_403_WAITS:
+            if not self._tiktok_profile_403(lines):
+                break
+            print(f"{Fore.YELLOW}⚠️  TikTok tra 403 cho trang ca nhan, cho {wait}s roi thu lai...")
+            if progress_callback:
+                progress_callback("0%", f"TikTok tạm chặn (403), chờ {wait} giây rồi thử lại...")
+            time.sleep(wait)
+            code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
 
         # Sau khi goi API danh sach story, TikTok tra 403 cho trang tung bai trong cung phien;
         # chay lai cac link do trong tien trinh moi thi tai duoc.
@@ -1199,6 +1210,14 @@ class MasterDownloader:
                 # Loi ngoai nhom 403 khong duoc chay lai: van tinh la that bai
                 code, lines = code or 1, lines + other_errors
         return code, lines, retry_urls
+
+    TIKTOK_PROFILE_403_WAITS = (5, 15, 30)
+
+    @staticmethod
+    def _tiktok_profile_403(lines):
+        """403 o chinh trang ca nhan, vd. "[tiktok][error] HttpError: '403 Forbidden' for 'https://www.tiktok.com/@linhpntt'"."""
+        return any(re.search(r"\]\[error\] HttpError: '403[^']*' for 'https?://(?:www\.)?tiktok\.com/@[^/'?#]+/?(?:[?#][^']*)?'", l)
+                   for l in lines)
 
     @staticmethod
     def _tiktok_gallerydl_failed(lines):
@@ -1273,7 +1292,10 @@ class MasterDownloader:
             msg = "Không có story nào đang hiển thị (story chỉ tồn tại 24 giờ). Nếu tài khoản riêng tư, hãy lưu TikTok Cookie."
             status = "Error"
         elif retry_urls and "403" in output:
-            msg = f"TikTok chặn (403) {len(retry_urls)} bài kể cả khi thử lại. Hãy đợi một lúc hoặc lưu TikTok Cookie rồi tải lại."
+            msg = f"TikTok tạm chặn (403) {len(retry_urls)} bài, thử lại sau ít phút (tải lại link để thử lại phần lỗi)."
+            status = "Error"
+        elif self._tiktok_profile_403(lines):
+            msg = f"TikTok tạm chặn (403) trang cá nhân sau {len(self.TIKTOK_PROFILE_403_WAITS) + 1} lần thử, thử lại sau ít phút."
             status = "Error"
         elif kind == "photos" and (list_failed or "could not extract any posts for this user" in output):
             # API danh sach loi, hoac trang dau tra rong (bi chan / trang chua co bai nao)
@@ -1297,6 +1319,8 @@ class MasterDownloader:
             # Dong cuoi thuong la duong dan file vua tai; bao dong loi cuoi cung neu co
             detail = next((l for l in reversed(lines) if "][error]" in l), lines[-1] if lines else "")
             msg = f"gallery-dl lỗi exit code {code}: {detail} (tải lại link để thử lại phần lỗi)"
+            if "403 forbidden" in detail.lower():
+                msg = f"Chỉ tải được một phần: TikTok tạm chặn (403), thử lại sau ít phút. {msg}"
             status = "Error"
         print(f"{Fore.GREEN if status == '100%' else Fore.RED}{msg}")
         if progress_callback:
