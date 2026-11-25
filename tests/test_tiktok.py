@@ -346,24 +346,79 @@ class ProfileFlowTest(unittest.TestCase):
     # Dong log that tu owner (v1.0.3): tuong lua TikTok tra 403 ngau nhien cho trang ca nhan
     PROFILE_403 = "[tiktok][error] HttpError: '403 Forbidden' for 'https://www.tiktok.com/@linhpntt'"
 
-    def test_profile_403_waits_and_retries(self):
-        with mock.patch("MasterDownloader.time.sleep") as sleep:
-            self._download([(4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
-        sleep.assert_called_once_with(5)
+    SEC_UID = "MS4wLjABAAAAGBM6no_We8HlJv9Glfhv3lgSs_OUYJDS42A1f5XWsc5Cm5QDyZF1kYgwT6fB1uiz"
+    ID_URL = f"https://www.tiktok.com/@{SEC_UID}/posts"
+
+    def _download_403(self, runs, id_url=ID_URL):
+        id_mock = mock.Mock(return_value=id_url) if isinstance(id_url, str) else mock.Mock(side_effect=id_url)
+        with mock.patch("MasterDownloader.time.sleep") as sleep, \
+                mock.patch.object(self.dl, "_tiktok_id_url", id_mock):
+            try:
+                self._download(runs)
+            finally:
+                self.sleeps = [c.args[0] for c in sleep.call_args_list]
+
+    def test_profile_403_retry_as_is_works(self):
+        self._download_403([(4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
+        self.assertEqual(self.sleeps, [5])
         self.assertEqual(self.gdl_calls[0], self.gdl_calls[1])
+        status, msg = self.progress[-1]
+        self.assertEqual(status, "100%")
+        # Ghi lai cach chay duoc vao thong bao (GUI log) de owner gui lai
+        self.assertTrue(any("2 thử lại y nguyên: CHẠY ĐƯỢC" in m for _, m in self.progress))
+
+    def test_profile_403_uses_id_from_ytdlp(self):
+        self._download_403([(4, [self.PROFILE_403]), (4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
+        self.assertEqual(self.sleeps, [5, 0])
+        self.assertEqual(self.gdl_calls[2][-1], self.ID_URL)
+        self.assertEqual(self.gdl_calls[2][:-1], self.gdl_calls[0][:-1])
+        self.assertTrue(any("lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân: CHẠY ĐƯỢC" in m for _, m in self.progress))
         self.assertEqual(self.progress[-1][0], "100%")
 
+    def test_profile_403_with_cookie_tries_without_cookie_first(self):
+        self.dl.get_manual_cookie = lambda platform: "msToken=x; sessionid=y"
+        self.dl.data_dir = self.tmp.name
+        self._download_403([(4, [self.PROFILE_403]), (4, [self.PROFILE_403]), (0, ["ok"]), (0, ["ok"])])
+        first, again, no_cookie = self.gdl_calls[:3]
+        self.assertIn("--cookies", first)
+        self.assertIn("--cookies", again)
+        self.assertNotIn("--cookies", no_cookie)
+        self.assertTrue(any("không gửi TikTok Cookie đã lưu: CHẠY ĐƯỢC" in m for _, m in self.progress))
+
+    def test_profile_403_tries_user_agent_and_chrome(self):
+        self._download_403([(4, [self.PROFILE_403])] * 3 + [(0, ["ok"]), (0, ["ok"])],
+                           id_url=RuntimeError("yt-dlp không trả secUid của tài khoản"))
+        self.assertEqual(self.sleeps, [5, 0, 10, 15])
+        ua, chrome = self.gdl_calls[2], self.gdl_calls[3]
+        self.assertTrue(any(a.startswith("user-agent=Mozilla/5.0") for a in ua))
+        self.assertIn("browser=chrome", chrome)
+        msg = next(m for _, m in self.progress if "CHẠY ĐƯỢC" in m)
+        self.assertIn("3 lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân: lỗi (yt-dlp không trả secUid", msg)
+        self.assertIn("4 User-Agent giống yt-dlp: 403", msg)
+        self.assertIn("5 giả trình duyệt Chrome (browser=chrome): CHẠY ĐƯỢC", msg)
+
     def test_profile_403_gives_up_with_one_clear_message(self):
-        # Bai anh va story deu bi 403 o trang ca nhan: moi buoc thu 4 lan, loi chi hien 1 lan
-        with mock.patch("MasterDownloader.time.sleep") as sleep:
-            with self.assertRaises(RuntimeError) as ctx:
-                self._download([(4, [self.PROFILE_403])] * 8)
-        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 15, 30] * 2)
-        self.assertEqual(len(self.gdl_calls), 8)
+        # Bai anh va story deu bi 403 o trang ca nhan: moi buoc thu het cac cach, loi chi hien 1 lan
+        with self.assertRaises(RuntimeError) as ctx:
+            self._download_403([(4, [self.PROFILE_403])] * 10)
+        self.assertEqual(self.sleeps, [5, 0, 10, 15] * 2)
+        self.assertTrue(all(w <= 30 for w in self.sleeps))
         msg = str(ctx.exception)
         self.assertIn("TikTok tạm chặn (403) trang cá nhân", msg)
+        self.assertIn("đã thử: 1 mặc định: 403; 2 thử lại y nguyên: 403", msg)
         self.assertEqual(msg.count("TikTok tạm chặn"), 1)
         self.assertNotIn("|", msg)
+
+    def test_id_url_from_ytdlp(self):
+        info = {"id": self.SEC_UID, "entries": [{"channel_id": self.SEC_UID, "uploader_id": "7307341852653552641"}]}
+        with mock.patch("MasterDownloader.yt_dlp.YoutubeDL") as ydl:
+            ydl.return_value.__enter__.return_value.extract_info.return_value = info
+            self.assertEqual(self.dl._tiktok_id_url(self.POSTS), self.ID_URL)
+            self.assertEqual(self.dl._tiktok_id_url("https://www.tiktok.com/@linhpntt/stories"),
+                             "https://www.tiktok.com/@7307341852653552641/stories")
+            ydl.return_value.__enter__.return_value.extract_info.return_value = {"id": "linhpntt", "entries": []}
+            with self.assertRaises(RuntimeError):
+                self.dl._tiktok_id_url(self.POSTS)
 
     def test_403_on_a_file_names_the_cause(self):
         err = "[download][error] HttpError: '403 Forbidden' for 'https://p16-sign-va.tiktokcdn.com/x.jpeg'"

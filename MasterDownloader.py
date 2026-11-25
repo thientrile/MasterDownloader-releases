@@ -1178,19 +1178,16 @@ class MasterDownloader:
                 errors.append(f"[mp3][error] Không đổi được sang MP3 ({reason}), giữ lại video: {path}")
         return errors
 
-    def _run_tiktok_gallerydl(self, cmd, url, progress_callback=None):
-        """Chay gallery-dl cho TikTok, chay lai 1 lan cac bai bi 403. Tra ve (code, lines, retry_urls)."""
-        code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
-        # Tuong lua chong bot cua TikTok tra 403 ngau nhien cho trang ca nhan (khong lay duoc bai nao):
-        # cho roi chay lai, lau dan
-        for wait in self.TIKTOK_PROFILE_403_WAITS:
-            if not self._tiktok_profile_403(lines):
-                break
-            print(f"{Fore.YELLOW}⚠️  TikTok tra 403 cho trang ca nhan, cho {wait}s roi thu lai...")
-            if progress_callback:
-                progress_callback("0%", f"TikTok tạm chặn (403), chờ {wait} giây rồi thử lại...")
-            time.sleep(wait)
-            code, lines = self._run_gallerydl(cmd + [self._tiktok_post_url(url)], progress_callback)
+    def _run_tiktok_gallerydl(self, cmd, url, progress_callback=None, cookie_args=()):
+        """Chay gallery-dl cho TikTok, chay lai 1 lan cac bai bi 403.
+        Tra ve (code, lines, retry_urls, trail); trail ghi cac cach da thu khi trang ca nhan bi 403."""
+        code, lines = self._run_gallerydl(cmd + list(cookie_args) + [self._tiktok_post_url(url)], progress_callback)
+        trail = ""
+        if self._tiktok_profile_403(lines):
+            code, lines, cmd, trail = self._tiktok_profile_403_fallbacks(
+                cmd, list(cookie_args), url, code, lines, progress_callback)
+        else:
+            cmd = cmd + list(cookie_args)
 
         # Sau khi goi API danh sach story, TikTok tra 403 cho trang tung bai trong cung phien;
         # chay lai cac link do trong tien trinh moi thi tai duoc.
@@ -1209,9 +1206,62 @@ class MasterDownloader:
             if other_errors:
                 # Loi ngoai nhom 403 khong duoc chay lai: van tinh la that bai
                 code, lines = code or 1, lines + other_errors
-        return code, lines, retry_urls
+        return code, lines, retry_urls, trail
 
-    TIKTOK_PROFILE_403_WAITS = (5, 15, 30)
+    def _tiktok_profile_403_fallbacks(self, cmd, cookie_args, url, code, lines, progress_callback=None):
+        """TikTok 403 chinh trang ca nhan (o may owner lan nao cung bi, trong khi yt-dlp van mo duoc):
+        thu lan luot tung cach, ghi lai cach nao chay duoc. Tra ve (code, lines, cmd da dung, trail)."""
+        target = self._tiktok_post_url(url)
+        steps = [("thử lại y nguyên", 5, cmd + cookie_args, lambda: target)]
+        if cookie_args:
+            steps.append(("không gửi TikTok Cookie đã lưu", 5, cmd, lambda: target))
+        steps += [
+            # gallery-dl bo qua trang ca nhan khi URL la secUid (/posts) hoac ID so (/stories)
+            ("lấy ID tài khoản bằng yt-dlp, không mở trang cá nhân", 0, cmd + cookie_args, lambda: self._tiktok_id_url(url)),
+            ("User-Agent giống yt-dlp", 10, cmd + cookie_args + ["-o", f"user-agent={yt_dlp.utils.networking.std_headers['User-Agent']}"], lambda: target),
+            ("giả trình duyệt Chrome (browser=chrome)", 15, cmd + cookie_args + ["-o", "browser=chrome"], lambda: target),
+        ]
+        total = len(steps) + 1
+        tried = ["1 mặc định: 403"]
+        run_cmd = cmd + cookie_args
+        for i, (name, wait, step_cmd, get_target) in enumerate(steps, 2):
+            print(f"{Fore.YELLOW}⚠️  TikTok 403 trang ca nhan - cach {i}/{total}: {name}")
+            if progress_callback:
+                progress_callback("0%", f"TikTok chặn (403) trang cá nhân, thử cách {i}/{total}: {name}...")
+            time.sleep(wait)
+            try:
+                step_target = get_target()
+            except Exception as e:
+                tried.append(f"{i} {name}: lỗi ({str(e)[:80]})")
+                continue
+            step_code, step_lines = self._run_gallerydl(step_cmd + [step_target], progress_callback)
+            if not self._tiktok_profile_403(step_lines):
+                tried.append(f"{i} {name}: CHẠY ĐƯỢC")
+                trail = "TikTok chặn (403) trang cá nhân; " + "; ".join(tried)
+                print(f"{Fore.GREEN}{trail}")
+                return step_code, step_lines, step_cmd, trail
+            tried.append(f"{i} {name}: 403")
+            code, lines, run_cmd = step_code, step_lines, step_cmd
+        trail = "đã thử: " + "; ".join(tried)
+        print(f"{Fore.RED}TikTok 403 trang ca nhan, {trail}")
+        return code, lines, run_cmd, trail
+
+    def _tiktok_id_url(self, url):
+        """/@user/posts -> /@<secUid>/posts, /@user/stories -> /@<ID so>/stories, lay ID bang yt-dlp."""
+        username = self._extract_tiktok_account_from_url(url)
+        opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlist_items": "1"}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"https://www.tiktok.com/@{username}", download=False)
+        entry = next(iter(info.get("entries") or []), {}) or {}
+        if url.rstrip("/").endswith("/stories"):
+            ident = entry.get("uploader_id")
+            if not str(ident or "").isdigit():
+                raise RuntimeError("yt-dlp không trả ID số của tài khoản")
+            return f"https://www.tiktok.com/@{ident}/stories"
+        ident = info.get("id") or entry.get("channel_id")
+        if not str(ident or "").startswith("MS4wLjABAAAA"):
+            raise RuntimeError("yt-dlp không trả secUid của tài khoản")
+        return f"https://www.tiktok.com/@{ident}/posts"
 
     @staticmethod
     def _tiktok_profile_403(lines):
@@ -1268,14 +1318,14 @@ class MasterDownloader:
         if progress_callback:
             progress_callback("0%", f"Đang tải TikTok {label}...")
 
-        code, lines, retry_urls = self._run_tiktok_gallerydl(
-            cmd + (["--cookies", cookie_file] if cookie_file else []), url, progress_callback)
+        code, lines, retry_urls, trail = self._run_tiktok_gallerydl(
+            cmd, url, progress_callback, cookie_args=["--cookies", cookie_file] if cookie_file else [])
         if cookie_file and self._tiktok_gallerydl_failed(lines):
             # Cookie da luu co the het han/hong: TikTok tra rong. Thu lai khong cookie.
             print(f"{Fore.YELLOW}⚠️  TikTok loi khi dung cookie da luu, thu lai khong cookie...")
             retry = self._run_tiktok_gallerydl(cmd, url, progress_callback)
             if retry[0] == 0 and not self._tiktok_gallerydl_failed(retry[1]):
-                code, lines, retry_urls = retry
+                code, lines, retry_urls, trail = retry
             # Khong cookie cung loi: giu ket qua (va thong bao) cua lan co cookie
 
         output = "\n".join(lines).lower()
@@ -1295,7 +1345,7 @@ class MasterDownloader:
             msg = f"TikTok tạm chặn (403) {len(retry_urls)} bài, thử lại sau ít phút (tải lại link để thử lại phần lỗi)."
             status = "Error"
         elif self._tiktok_profile_403(lines):
-            msg = f"TikTok tạm chặn (403) trang cá nhân sau {len(self.TIKTOK_PROFILE_403_WAITS) + 1} lần thử, thử lại sau ít phút."
+            msg = "TikTok tạm chặn (403) trang cá nhân, thử lại sau ít phút."
             status = "Error"
         elif kind == "photos" and (list_failed or "could not extract any posts for this user" in output):
             # API danh sach loi, hoac trang dau tra rong (bi chan / trang chua co bai nao)
@@ -1322,6 +1372,9 @@ class MasterDownloader:
             if "403 forbidden" in detail.lower():
                 msg = f"Chỉ tải được một phần: TikTok tạm chặn (403), thử lại sau ít phút. {msg}"
             status = "Error"
+        if trail:
+            # Owner gui lai log la biet cach du phong nao chay duoc tren may ho
+            msg = f"{msg} [{trail}]"
         print(f"{Fore.GREEN if status == '100%' else Fore.RED}{msg}")
         if progress_callback:
             progress_callback(status, msg)
